@@ -16,7 +16,9 @@ from . import journal as journal_mod
 from .backtest import BARS, summarize
 from .indicators import ema
 from .market import INTERVAL_SECONDS, MarketError, derivatives, fear_greed, get_klines
-from .setup import MODES, build_setup, compact
+from . import research
+from .backtest import stats as bt_stats
+from .setup import MODES, RULES_V2, btc_regime, build_setup, build_signal, compact
 
 app = FastAPI(title="Crypto Trade Setup Gateway", version="0.2.0")
 app.add_middleware(
@@ -57,7 +59,10 @@ def _setup(settings: Settings, symbol: str, mode: str) -> dict:
         cfg = MODES[mode]
         htf = get_klines(settings, symbol, cfg["htf"], 300)
         ltf = get_klines(settings, symbol, cfg["ltf"], 300)
-        return build_setup(symbol, mode, htf, ltf, derivatives(settings, symbol), fear_greed(settings))
+        btc = htf if symbol == "BTCUSDT" else get_klines(settings, "BTCUSDT", cfg["htf"], 300)
+        s = build_setup(symbol, mode, htf, ltf, derivatives(settings, symbol), fear_greed(settings))
+        s["signal"] = build_signal(s, ltf, btc_regime(btc)[1][-2])  # last fully closed BTC candle
+        return s
 
     return _cached(("setup", settings.data_mode, symbol, mode), compute)
 
@@ -124,9 +129,11 @@ def snapshot(mode: str = "swing", settings: Settings = Depends(get_settings)) ->
 
 
 @app.get("/api/backtest/{symbol}")
-def backtest(symbol: str, mode: str = "swing", settings: Settings = Depends(get_settings)) -> dict:
-    """Walk-forward test of the same setup rules on past candles. Heavy, so cached for 30 minutes."""
+def backtest(symbol: str, mode: str = "swing", rules: str = "v1", settings: Settings = Depends(get_settings)) -> dict:
+    """Walk-forward test of the setup rules on past candles. Heavy, so cached for 30 minutes."""
     symbol, mode = _symbol(symbol), _mode(mode)
+    if rules not in ("v1", "v2"):
+        raise HTTPException(status_code=422, detail="rules harus v1 atau v2")
 
     def compute():
         cfg = MODES[mode]
@@ -136,12 +143,40 @@ def backtest(symbol: str, mode: str = "swing", settings: Settings = Depends(get_
         htf = get_klines(settings, symbol, cfg["htf"], htf_bars)
         if settings.data_mode == "binance":
             ltf = ltf[:-1]  # the newest bar is still open
-        return summarize(symbol, mode, htf, ltf)
+        if rules == "v1":
+            out = summarize(symbol, mode, htf, ltf)
+            trades = [{"t": p["time"], "r": p["value"]} for p in out["equity"]]
+            out["folds"] = research.folds(_deltas(trades), ltf[research.WARMUP]["time"], ltf[-1]["time"])
+            return {**out, "rules": "v1"}
+        btc = htf if symbol == "BTCUSDT" else get_klines(settings, "BTCUSDT", cfg["htf"], htf_bars)
+        pre = research.precompute(symbol, mode, htf, ltf, btc_regime(btc))
+        trades = research.simulate(pre, ltf, mode, RULES_V2)
+        equity, curve = 0.0, []
+        for t in trades:
+            equity += t["r"]
+            curve.append({"time": t["t"], "value": round(equity, 3)})
+        return {
+            "symbol": symbol, "mode": mode, "rules": "v2",
+            "period": {"from": ltf[research.WARMUP]["time"], "to": ltf[-1]["time"], "bars": len(ltf)},
+            "signals": len(trades), "missed": 0,
+            "exit_split": bt_stats([{**t, "status": t["status"], "r_split": t["r"]} for t in trades], "r_split"),
+            "equity": curve,
+            "folds": research.folds(trades, ltf[research.WARMUP]["time"], ltf[-1]["time"]),
+        }
 
     try:
-        return _cached(("bt", settings.data_mode, symbol, mode), compute, ttl=1800)
+        return _cached(("bt", settings.data_mode, symbol, mode, rules), compute, ttl=1800)
     except MarketError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+def _deltas(curve: list[dict]) -> list[dict]:
+    """Equity-curve points back to per-trade results."""
+    prev, out = 0.0, []
+    for p in curve:
+        out.append({"t": p["t"], "r": p["r"] - prev})
+        prev = p["r"]
+    return out
 
 
 def _edge_item(settings: Settings, key: str):

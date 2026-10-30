@@ -39,6 +39,20 @@ export type Setup = {
   bear_points: string[];
   derivatives: { funding_pct: number | null; oi_change_24h_pct: number | null; long_short_ratio: number | null };
   fear_greed: { value: number; label: string } | null;
+  signal: Signal;
+};
+
+export type Signal = {
+  active: boolean;
+  side: 'long' | 'short';
+  entry: number;
+  stop_loss: number;
+  tp1: number;
+  tp2: number;
+  checks: { label: string; ok: boolean }[];
+  btc_regime: number;
+  auto: boolean;
+  note: string;
 };
 
 export type SnapshotCoin = {
@@ -89,17 +103,23 @@ export type Stats = {
   max_drawdown_r: number;
 };
 
+export type Rules = 'v1' | 'v2';
+
+export type Fold = { n: number; wr: number | null; exp: number | null; pf: number | null };
+
 export type Backtest = {
   symbol: string;
   mode: Mode;
+  rules: Rules;
+  folds: Fold[];
   period: { from: number | null; to: number; bars: number };
   signals: number;
   missed: number;
-  exit_tp1: Stats;
+  exit_tp1?: Stats;
   exit_split: Stats;
-  by_quality: { checks_4plus: Stats; checks_below_4: Stats };
+  by_quality?: { checks_4plus: Stats; checks_below_4: Stats };
   equity: LinePoint[];
-  recent: { time: number; side: 'long' | 'short'; checks: number; entry: number; stop_loss: number; tp1: number; tp2: number; status: string; r_split: number }[];
+  recent?: { time: number; side: 'long' | 'short'; checks: number; entry: number; stop_loss: number; tp1: number; tp2: number; status: string; r_split: number }[];
 };
 
 export type JournalResult = {
@@ -127,7 +147,8 @@ export const api = {
   setup: (symbol: string, mode: Mode) => request<Setup>(`/api/setup/${encodeURIComponent(symbol)}?mode=${mode}`),
   snapshot: (mode: Mode) => request<Snapshot>(`/api/snapshot?mode=${mode}`),
   debate: () => request<Debate>('/api/debate'),
-  backtest: (symbol: string, mode: Mode) => request<Backtest>(`/api/backtest/${encodeURIComponent(symbol)}?mode=${mode}`),
+  backtest: (symbol: string, mode: Mode, rules: Rules) =>
+    request<Backtest>(`/api/backtest/${encodeURIComponent(symbol)}?mode=${mode}&rules=${rules}`),
   journal: () => request<Journal>('/api/journal'),
 };
 

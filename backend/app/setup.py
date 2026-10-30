@@ -14,6 +14,15 @@ MODES = {
     "scalp": {"htf": "1h", "ltf": "15m", "risk_pct": 0.5},
 }
 
+# Filters picked by app/research.py on 2024-03..2026-10 Binance data (10 coins, swing).
+# They beat the v1 rules in all four walk-forward periods but were profitable in only
+# two of them, so the signal is shown as research, not as an automatic signal.
+RULES_V2 = {"entry": "market", "regime": True, "trend200": False, "wide_sl": False, "threshold": 40, "vol": True}
+VALIDATION = {
+    "swing": {"auto": False, "note": "Lebih baik dari aturan lama di 4/4 periode uji, tapi untung hanya di 2/4 periode. Belum layak jadi sinyal otomatis."},
+    "scalp": {"auto": False, "note": "Semua 96 varian aturan rugi di data uji 15m. Jangan dipakai untuk entry."},
+}
+
 RATINGS = [(60, "Buy"), (25, "Overweight"), (-25, "Hold"), (-60, "Underweight")]
 
 
@@ -226,4 +235,52 @@ def compact(setup: dict) -> dict:
         "oi24": d.get("oi_change_24h_pct"),
         "ls": d.get("long_short_ratio"),
         "ok": sum(1 for c in setup["checklist"] if c["ok"]),
+    }
+
+
+def btc_regime(btc_htf: list[dict]) -> tuple[list[int], list[int]]:
+    """Per candle: +1 when BTC closes above a rising EMA50, -1 below a falling one, else 0."""
+    closes = [c["close"] for c in btc_htf]
+    e50 = ema(closes, 50)
+    out = []
+    for i, c in enumerate(closes):
+        if i < 55 or e50[i] is None or e50[i - 5] is None:
+            out.append(0)
+        elif c > e50[i] and e50[i] > e50[i - 5]:
+            out.append(1)
+        elif c < e50[i] and e50[i] < e50[i - 5]:
+            out.append(-1)
+        else:
+            out.append(0)
+    return [c["time"] for c in btc_htf], out
+
+
+def build_signal(setup: dict, ltf_candles: list[dict], btc_state: int) -> dict:
+    """Rules v2 on top of a setup: stricter score, BTC regime, volatility, market entry."""
+    mode, side, price = setup["mode"], setup["plan_side"], setup["price"]
+    long = side == "long"
+    atr_series = atr(ltf_candles)
+    pct = [a / c["close"] for a, c in zip(atr_series, ltf_candles) if a is not None][-200:]
+    vol_ok = len(pct) < 50 or pct[-1] >= sorted(pct)[len(pct) // 2]
+    checks = [
+        {"label": f"Skor bias minimal {RULES_V2['threshold']} (sekarang {setup['score']})",
+         "ok": abs(setup["score"]) >= RULES_V2["threshold"]},
+        {"label": "Searah tren BTC " + MODES[mode]["htf"].upper(), "ok": btc_state == (1 if long else -1)},
+        {"label": "Volatilitas di atas median 200 bar", "ok": vol_ok},
+    ]
+    sl = setup["levels"]["stop_loss"]
+    risk = (price - sl) if long else (sl - price)
+    active = all(c["ok"] for c in checks) and risk > 0
+    tp1 = price + 2 * risk if long else price - 2 * risk
+    tp2 = price + 3 * risk if long else price - 3 * risk
+    return {
+        "active": active,
+        "side": side,
+        "entry": _round(price, price),
+        "stop_loss": sl,
+        "tp1": _round(tp1, price),
+        "tp2": _round(tp2, price),
+        "checks": checks,
+        "btc_regime": btc_state,
+        **VALIDATION[mode],
     }
