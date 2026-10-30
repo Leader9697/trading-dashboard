@@ -98,3 +98,8 @@ def test_candles_before_end_for_older_history(client):
     first = client.get("/api/candles/BTCUSDT?interval=4h").json()["candles"]
     older = client.get(f"/api/candles/BTCUSDT?interval=4h&limit=1000&end={first[0]['time']}").json()["candles"]
     assert len(older) == 1000 and older[-1]["time"] < first[0]["time"]
+
+
+def test_candles_twice_uses_cache(client):
+    for _ in range(2):
+        assert client.get("/api/candles/ETHUSDT?interval=4h").status_code == 200
