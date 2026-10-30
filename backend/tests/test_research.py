@@ -28,7 +28,7 @@ def test_manage_stop_first():
 
 def test_setup_has_signal_v2(client):
     sig = client.get("/api/setup/ETHUSDT?mode=swing").json()["signal"]
-    assert sig["auto"] is False and len(sig["checks"]) == 3
+    assert sig["auto"] is False and sig["rules"] == "v3" and len(sig["checks"]) == 6
     if sig["side"] == "long":
         assert sig["stop_loss"] < sig["entry"] < sig["tp1"] < sig["tp2"]
     else:

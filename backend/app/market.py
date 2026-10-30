@@ -105,8 +105,10 @@ def _get_json(url: str, params: dict) -> object | None:
 def derivatives(settings: Settings, symbol: str) -> dict:
     """Funding, 24h open-interest change and long/short ratio. Missing pieces stay None."""
     if settings.data_mode == "demo":
-        return {"funding_pct": 0.01, "oi_change_24h_pct": 2.5, "long_short_ratio": 1.4}
-    out: dict = {"funding_pct": None, "oi_change_24h_pct": None, "long_short_ratio": None}
+        return {"funding_pct": 0.01, "oi_change_24h_pct": 2.5, "long_short_ratio": 1.4,
+                "ls_rank_90d": 0.5, "taker_4h": 1.05}
+    out: dict = {"funding_pct": None, "oi_change_24h_pct": None, "long_short_ratio": None,
+                 "ls_rank_90d": None, "taker_4h": None}
     prem = _get_json(f"{FUTURES}/fapi/v1/premiumIndex", {"symbol": symbol})
     if isinstance(prem, dict) and "lastFundingRate" in prem:
         out["funding_pct"] = round(float(prem["lastFundingRate"]) * 100, 4)
@@ -119,6 +121,16 @@ def derivatives(settings: Settings, symbol: str) -> dict:
                    {"symbol": symbol, "period": "1h", "limit": 1})
     if isinstance(ls, list) and ls:
         out["long_short_ratio"] = round(float(ls[-1]["longShortRatio"]), 2)
+    # Where today's retail long/short sits in its ~83-day range (0 = most short, 1 = most long).
+    hist = _get_json(f"{FUTURES}/futures/data/globalLongShortAccountRatio",
+                     {"symbol": symbol, "period": "4h", "limit": 500})
+    if isinstance(hist, list) and len(hist) >= 60:
+        vals = [float(h["longShortRatio"]) for h in hist]
+        now = float(ls[-1]["longShortRatio"]) if isinstance(ls, list) and ls else vals[-1]
+        out["ls_rank_90d"] = round(sum(1 for v in vals if v <= now) / len(vals), 2)
+    taker = _get_json(f"{FUTURES}/futures/data/takerlongshortRatio", {"symbol": symbol, "period": "5m", "limit": 48})
+    if isinstance(taker, list) and taker:
+        out["taker_4h"] = round(sum(float(t["buySellRatio"]) for t in taker) / len(taker), 3)
     return out
 
 

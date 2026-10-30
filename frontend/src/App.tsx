@@ -186,10 +186,17 @@ function SetupCard({ setup }: { setup: Setup }) {
   );
 }
 
+const STAGE_LABEL: Record<Signal['stage'], string> = {
+  forward_test: 'Tahap forward test.',
+  validated: 'Lolos uji sinyal otomatis.',
+  rejected: 'Tidak disarankan.',
+  research: 'Belum lolos uji sinyal otomatis.',
+};
+
 function SignalBox({ sig }: { sig: Signal }) {
   return (
     <div className={`signal ${sig.active ? (sig.side === 'long' ? 'up' : 'down') : ''}`}>
-      <h3>Sinyal aturan v2</h3>
+      <h3>Sinyal aturan {sig.rules}</h3>
       {sig.active ? (
         <p><strong>{sig.side.toUpperCase()} sekarang</strong> di ±{fmt(sig.entry)} · SL <span className="down">{fmt(sig.stop_loss)}</span> · TP1 <span className="up">{fmt(sig.tp1)}</span> · TP2 <span className="up">{fmt(sig.tp2)}</span></p>
       ) : (
@@ -198,7 +205,7 @@ function SignalBox({ sig }: { sig: Signal }) {
       <ul className="checklist">
         {sig.checks.map((c) => <li key={c.label} className={c.ok ? 'ok' : 'no'}>{c.label}</li>)}
       </ul>
-      <p className="note">{sig.auto ? 'Lolos uji sinyal otomatis.' : 'Belum lolos uji sinyal otomatis. '}{sig.note}</p>
+      <p className="note">{STAGE_LABEL[sig.stage]} {sig.note}</p>
     </div>
   );
 }
