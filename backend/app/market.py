@@ -41,14 +41,37 @@ def demo_klines(symbol: str, interval: str, limit: int) -> list[dict]:
 
 
 def binance_klines(symbol: str, interval: str, limit: int) -> list[dict]:
+    return _klines_request({"symbol": symbol, "interval": interval, "limit": limit})
+
+
+def binance_klines_paged(symbol: str, interval: str, limit: int) -> list[dict]:
+    """Binance caps one request at 1000 bars; walk backwards with endTime for more."""
+    if limit <= 1000:
+        return binance_klines(symbol, interval, limit)
+    out: list[dict] = []
+    end_ms: int | None = None
+    while len(out) < limit:
+        batch = min(1000, limit - len(out))
+        params = {"symbol": symbol, "interval": interval, "limit": batch}
+        if end_ms is not None:
+            params["endTime"] = end_ms
+        rows = _klines_request(params)
+        if not rows:
+            break
+        out = rows + out
+        end_ms = rows[0]["time"] * 1000 - 1
+        if len(rows) < batch:
+            break
+    return out
+
+
+def _klines_request(params: dict) -> list[dict]:
     last_error: Exception | None = None
     for host in SPOT_HOSTS:
         try:
-            resp = httpx.get(f"{host}/api/v3/klines",
-                             params={"symbol": symbol, "interval": interval, "limit": limit},
-                             timeout=_TIMEOUT)
+            resp = httpx.get(f"{host}/api/v3/klines", params=params, timeout=_TIMEOUT)
             if resp.status_code == 400:
-                raise MarketError(f"Pair {symbol} tidak dikenal Binance")
+                raise MarketError(f"Pair {params['symbol']} tidak dikenal Binance")
             resp.raise_for_status()
             return [
                 {"time": int(k[0]) // 1000, "open": float(k[1]), "high": float(k[2]),
@@ -67,7 +90,7 @@ def get_klines(settings: Settings, symbol: str, interval: str, limit: int = 300)
         raise MarketError(f"Interval {interval} tidak didukung")
     if settings.data_mode == "demo":
         return demo_klines(symbol, interval, limit)
-    return binance_klines(symbol, interval, limit)
+    return binance_klines_paged(symbol, interval, limit)
 
 
 def _get_json(url: str, params: dict) -> object | None:

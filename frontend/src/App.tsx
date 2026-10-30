@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { api, fmt, type CandleResponse, type Config, type Debate, type DebateCoin, type Mode, type Setup, type Snapshot } from './api';
+import { api, fmt, type Backtest, type CandleResponse, type Config, type Debate, type DebateCoin, type Journal, type LinePoint, type Mode, type Setup, type Snapshot, type Stats } from './api';
 import { PriceChart } from './PriceChart';
 
 const DIR_LABEL = { long: 'LONG', short: 'SHORT', wait: 'TUNGGU' } as const;
@@ -114,6 +114,8 @@ export default function App() {
         </aside>
 
         <DebatePanel debate={debate} coin={coinDebate} symbol={symbol} setup={setup} />
+        <BacktestPanel symbol={symbol} mode={mode} />
+        <JournalPanel />
       </main>
 
       <footer>Analisis riset, bukan saran keuangan. Harga bisa menembus level mana pun; keputusan dan eksekusi tetap di tanganmu.</footer>
@@ -227,6 +229,131 @@ function DebatePanel({ debate, coin, symbol, setup }: { debate: Debate | null; c
         </div>
       )}
       {live?.risk_note && <p className="note">{live.risk_note}</p>}
+    </section>
+  );
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  stop: 'Kena SL', breakeven: 'TP1 lalu BE', tp2: 'TP2', timeout: 'Waktu habis', timeout_after_tp1: 'TP1 lalu waktu habis',
+  missed: 'Tidak terisi', pending: 'Menunggu entry', open: 'Berjalan', no_data: 'Tanpa data',
+};
+
+function r(n: number | null | undefined) {
+  if (n === null || n === undefined) return '–';
+  return `${n > 0 ? '+' : ''}${n.toFixed(2)}R`;
+}
+
+function StatGrid({ s }: { s: Stats }) {
+  const items: [string, string, string?][] = [
+    ['Trade', String(s.trades)],
+    ['Winrate', s.winrate === null ? '–' : `${s.winrate}%`],
+    ['Ekspektasi', r(s.expectancy_r), s.expectancy_r === null ? '' : s.expectancy_r > 0 ? 'up' : 'down'],
+    ['Total', r(s.total_r), s.total_r > 0 ? 'up' : s.total_r < 0 ? 'down' : ''],
+    ['Profit factor', s.profit_factor === null ? '–' : String(s.profit_factor)],
+    ['Max drawdown', `-${s.max_drawdown_r}R`],
+  ];
+  return (
+    <div className="context stats">
+      {items.map(([k, v, tone]) => <div key={k}><span>{k}</span><strong className={tone}>{v}</strong></div>)}
+    </div>
+  );
+}
+
+function Equity({ points }: { points: LinePoint[] }) {
+  if (points.length < 2) return null;
+  const vals = [0, ...points.map((p) => p.value)];
+  const lo = Math.min(...vals), hi = Math.max(...vals), span = hi - lo || 1;
+  const d = vals.map((v, i) => `${(i / (vals.length - 1)) * 100},${40 - ((v - lo) / span) * 40}`).join(' ');
+  const zero = 40 - ((0 - lo) / span) * 40;
+  return (
+    <svg className="equity" viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-label="Kurva ekuitas dalam R">
+      <line x1="0" x2="100" y1={zero} y2={zero} className="zero" />
+      <polyline points={d} className={vals[vals.length - 1] >= 0 ? 'pos' : 'neg'} />
+    </svg>
+  );
+}
+
+function BacktestPanel({ symbol, mode }: { symbol: string; mode: Mode }) {
+  const [bt, setBt] = useState<Backtest | null>(null);
+  const [state, setState] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [err, setErr] = useState('');
+
+  useEffect(() => { setBt(null); setState('idle'); }, [symbol, mode]);
+
+  const run = () => {
+    setState('loading');
+    api.backtest(symbol, mode).then((b) => { setBt(b); setState('idle'); }, (e: Error) => { setErr(e.message); setState('error'); });
+  };
+
+  return (
+    <section className="panel backtest">
+      <div className="panel-head">
+        <h2>Backtest <small>{base(symbol)} · {mode} · aturan yang sama dengan setup di atas</small></h2>
+        <button className="action" onClick={run} disabled={state === 'loading'}>
+          {state === 'loading' ? 'Menghitung…' : bt ? 'Ulangi' : 'Jalankan backtest'}
+        </button>
+      </div>
+      {state === 'error' && <p className="error">{err}</p>}
+      {!bt && state !== 'error' && (
+        <p className="muted">Uji walk-forward: tiap candle hanya melihat data sebelumnya, order limit di entry, SL/TP dicek bar per bar, biaya 0,08% per trade sudah dipotong. Funding, OI dan Fear &amp; Greed tidak punya histori gratis, jadi tidak ikut dihitung.</p>
+      )}
+      {bt && (
+        <>
+          <p className="source">
+            {bt.period.from ? `${wib(bt.period.from)} – ${wib(bt.period.to)}` : '–'} · {bt.signals} sinyal, {bt.missed} tidak terisi
+          </p>
+          <h3>Keluar setengah di TP1, sisa ke TP2</h3>
+          <StatGrid s={bt.exit_split} />
+          <Equity points={bt.equity} />
+          <h3>Keluar penuh di TP1</h3>
+          <StatGrid s={bt.exit_tp1} />
+          <h3>Checklist ≥ 4 vs &lt; 4</h3>
+          <div className="quality">
+            <div><span className="muted">≥ 4 lolos</span><StatGrid s={bt.by_quality.checks_4plus} /></div>
+            <div><span className="muted">&lt; 4 lolos</span><StatGrid s={bt.by_quality.checks_below_4} /></div>
+          </div>
+          <p className="note">Hasil masa lalu tidak menjamin hasil berikutnya. Sampel kecil (di bawah ~30 trade) belum bisa dijadikan pegangan.</p>
+        </>
+      )}
+    </section>
+  );
+}
+
+function JournalPanel() {
+  const [j, setJ] = useState<Journal | null>(null);
+  useEffect(() => { api.journal().then(setJ, () => setJ(null)); }, []);
+  if (!j) return null;
+  return (
+    <section className="panel journal">
+      <div className="panel-head">
+        <h2>Jurnal keputusan AI <small>dinilai otomatis dari candle {j.results.length ? 'sesudah keputusan' : ''}</small></h2>
+      </div>
+      {j.results.length === 0 ? (
+        <p className="muted">Belum ada catatan. Setiap debat terjadwal akan mencatat keputusan Long/Short, lalu hasilnya dinilai di sini.</p>
+      ) : (
+        <>
+          <StatGrid s={j.summary} />
+          <div className="summary-table">
+            <table>
+              <thead><tr><th>Waktu</th><th>Koin</th><th>Arah</th><th>Entry</th><th>SL</th><th>TP1 / TP2</th><th>Hasil</th><th>R</th></tr></thead>
+              <tbody>
+                {[...j.results].reverse().map((x) => (
+                  <tr key={`${x.ts}-${x.symbol}`}>
+                    <td>{wib(x.ts)}</td>
+                    <td><strong>{base(x.symbol)}</strong></td>
+                    <td><span className={`pill ${x.side === 'long' ? 'up' : 'down'}`}>{x.side.toUpperCase()}</span></td>
+                    <td>{fmt(x.entry)}</td>
+                    <td className="down">{fmt(x.stop_loss)}</td>
+                    <td className="up">{fmt(x.tp1)} / {fmt(x.tp2)}</td>
+                    <td>{STATUS_LABEL[x.status] ?? x.status}</td>
+                    <td className={x.r === null ? '' : x.r > 0 ? 'up' : x.r < 0 ? 'down' : ''}>{r(x.r)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </section>
   );
 }

@@ -80,6 +80,39 @@ export type Config = {
   debate_enabled: boolean;
 };
 
+export type Stats = {
+  trades: number;
+  winrate: number | null;
+  expectancy_r: number | null;
+  total_r: number;
+  profit_factor: number | null;
+  max_drawdown_r: number;
+};
+
+export type Backtest = {
+  symbol: string;
+  mode: Mode;
+  period: { from: number | null; to: number; bars: number };
+  signals: number;
+  missed: number;
+  exit_tp1: Stats;
+  exit_split: Stats;
+  by_quality: { checks_4plus: Stats; checks_below_4: Stats };
+  equity: LinePoint[];
+  recent: { time: number; side: 'long' | 'short'; checks: number; entry: number; stop_loss: number; tp1: number; tp2: number; status: string; r_split: number }[];
+};
+
+export type JournalResult = {
+  ts: number; symbol: string; side: 'long' | 'short'; entry: number; stop_loss: number; tp1: number; tp2: number;
+  status: string; r: number | null;
+};
+
+export type Journal = {
+  enabled: boolean;
+  results: JournalResult[];
+  summary: Stats & { missed: number };
+};
+
 async function request<T>(path: string): Promise<T> {
   const res = await fetch(path);
   const body = await res.json().catch(() => ({}));
@@ -94,6 +127,8 @@ export const api = {
   setup: (symbol: string, mode: Mode) => request<Setup>(`/api/setup/${encodeURIComponent(symbol)}?mode=${mode}`),
   snapshot: (mode: Mode) => request<Snapshot>(`/api/snapshot?mode=${mode}`),
   debate: () => request<Debate>('/api/debate'),
+  backtest: (symbol: string, mode: Mode) => request<Backtest>(`/api/backtest/${encodeURIComponent(symbol)}?mode=${mode}`),
+  journal: () => request<Journal>('/api/journal'),
 };
 
 export function fmt(n: number | null | undefined): string {
