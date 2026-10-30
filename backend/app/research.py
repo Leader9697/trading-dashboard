@@ -77,7 +77,8 @@ def _manage(long: bool, entry: float, sl: float, ltf: list[dict], start: int, ma
     return (1.0 + 0.5 * open_r if half else open_r), end, "timeout"
 
 
-def simulate(pre: list, ltf: list[dict], mode: str, v: dict) -> list[dict]:
+def simulate(pre: list, ltf: list[dict], mode: str, v: dict, allow=None) -> list[dict]:
+    """`allow(i, long)` is an optional extra filter, e.g. on funding or open interest."""
     rules = RULES[mode]
     trades = []
     i, n = WARMUP, len(ltf)
@@ -98,6 +99,8 @@ def simulate(pre: list, ltf: list[dict], mode: str, v: dict) -> list[dict]:
             ok = p["above200"] is not None and p["above200"] == long
         if ok and v["vol"] and len(recent_atr) >= 50:
             ok = p["atr_pct"] >= sorted(recent_atr)[len(recent_atr) // 2]
+        if ok and allow is not None:
+            ok = allow(i, long)
         if not ok:
             i += 1
             continue
