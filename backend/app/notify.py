@@ -94,7 +94,15 @@ def run(settings: Settings, setup_for, now: float | None = None, test: bool = Fa
             return {"ok": False, "reason": "Tunggu 1 menit"}
         _last_test[0] = now
         _call(settings, "sendMessage", chat_id=chat, text="Bot sinyal tersambung. Notif dikirim tiap ada sinyal 6/6 setelah candle 4 jam tutup.")
-        return {"ok": True, "test": True}
+        # A sample in the exact alert format, from the first coin's current plan
+        symbol = settings.watchlist[0]
+        try:
+            sig = setup_for(symbol)["signal"]
+        except Exception:
+            return {"ok": True, "test": True, "sample": False}
+        _call(settings, "sendMessage", chat_id=chat, disable_web_page_preview=True,
+              text="CONTOH, BUKAN SINYAL. Jangan entry.\n\n" + message(symbol, sig, settings))
+        return {"ok": True, "test": True, "sample": True}
     step = INTERVAL_SECONDS[MODES["swing"]["ltf"]]
     closed = int(now // step * step)
     if now - closed > WINDOW:
