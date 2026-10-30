@@ -23,7 +23,7 @@ from . import research as R
 from . import research_deriv as D
 from .backtest import FEE_ROUND_TRIP, RULES, WARMUP
 from .market import INTERVAL_SECONDS
-from .setup import MODES, RULES_V2, RULES_V3_POSITIONING, TP_R, btc_regime
+from .setup import MODES, RULES_V2, RULES_V3_POSITIONING, btc_regime
 
 V3 = {"funding": False, **RULES_V3_POSITIONING}
 BLIND_END = int(datetime(2024, 3, 1, tzinfo=timezone.utc).timestamp())
@@ -168,7 +168,7 @@ def run(data: dict, feats: dict, mode: str = "swing") -> dict:
             "years": {y: [len(v), round(sum(v) / len(v), 3)] for y, v in sorted(years.items())},
             "pos_folds": sum(1 for f in fs if (f["exp"] or 0) > 0),
         })
-    base = next(r for r in rows if r["v"] == label(ENTRIES[0], "struct", TP_R))
+    base = next(r for r in rows if r["v"] == label(ENTRIES[0], "struct", 2.5))
     ranked = sorted(rows, key=lambda r: r["is"]["total"], reverse=True)
     return {
         "period": [t0, t1],

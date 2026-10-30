@@ -89,3 +89,14 @@ Rules v2, without the OI, crowd and taker filters, because that data doesn't exi
 Overall: 4260 trades, winrate 42%, +0.06R per trade. On the years v2 was never fitted on (2017 – Feb 2024): +0.04R with PF 1.08. The old v1 rules made +0.02R and lost in 5 of the 10 years.
 
 Conclusion: the system makes money in trending markets and loses in bear and sideways years. A losing year is normal for it.
+
+## Sniper entry (research_entry.py, Oct 2026)
+
+Same v3 signals, 108 ways to enter and protect them (market vs limit pullback 0.25/0.5/1 ATR, wait 2 or 4 bars, skip or market if unfilled; stop at structure or 1/1.5/2 ATR; TP 2/2.5/3R). One position per coin, fees included, 2022 to Oct 2026, 5 coins. On a limit fill bar a stop counts but a target only from the next bar (high/low order unknown).
+
+| Variant | Trades | Winrate | Exp/trade | Total | PF | Max DD |
+|---|---|---|---|---|---|---|
+| Market, structure stop, TP 2.5R (old live) | 571 | | +0.12R | +68.5R | | |
+| Limit 0.25 ATR, 4 bars, skip; SL 2 ATR; TP 3R (new live) | 577 | 39.5% | +0.19R | +109.9R | 1.32 | 32.1R |
+
+Per year (new): 2022 +0.16, 2023 +0.15, 2024 +0.24, 2025 +0.20, 2026 +0.21. Neighbouring variants (pullback 0.25 to 0.5 ATR, SL 2 ATR, TP 3R) give +0.19 to +0.20R, so this is a plateau, not a single point. Blind window and out-of-sample both beat the old rule. Caveat: the variant was picked after seeing the full sample.

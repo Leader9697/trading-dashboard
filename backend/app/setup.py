@@ -7,6 +7,7 @@ debate (written separately into Edge Config) only argues over these facts.
 from __future__ import annotations
 
 from .indicators import atr, ema, macd_hist, pivots, rsi
+from .market import INTERVAL_SECONDS
 
 MODES = {
     # higher timeframe sets the trend, entry timeframe times the trade
@@ -21,7 +22,11 @@ RULES_V2 = {"entry": "market", "regime": True, "trend200": False, "wide_sl": Fal
 # v3 = v2 plus positioning filters picked by app/research_deriv.py. It met the auto criteria
 # on 2024-03..2026-10 and stayed positive on unseen 2022..2024-03 data (+0.09R, PF 1.19).
 RULES_V3_POSITIONING = {"oi": "up", "crowd": True, "taker": True}
-TP_R = 2.5  # one take profit; 2.5R was best on 2022–2026 among 1.5/2/2.5/3R and the 2R+3R split
+# Entry and exits, from research_entry (2022–2026, 108 variants): a limit 0.25 ATR better
+# than the signal close, valid 4 bars and skipped if unfilled, a stop 2 ATR from the close
+# and one target at 3R beat entering at market with the structure stop (+0.19R vs +0.12R
+# per trade, about the same number of trades, positive in every year).
+LIMIT_ATR, STOP_ATR, TP_R, LIMIT_BARS = 0.25, 2.0, 3.0, 4
 MIN_NOTIONAL = {"BTCUSDT": 100, "ETHUSDT": 20}  # Binance USDT-M minimum order value, others 5 USDT
 VALIDATION = {
     "swing": {"auto": False, "stage": "forward_test",
@@ -285,18 +290,24 @@ def build_signal(setup: dict, ltf_candles: list[dict], btc_state: int) -> dict:
          "ok": rank is not None and (rank <= 0.7 if long else rank >= 0.3)},
         {"label": "Taker 4 jam terakhir searah", "ok": taker is not None and (taker > 1 if long else taker < 1)},
     ]
-    sl = setup["levels"]["stop_loss"]
-    risk = (price - sl) if long else (sl - price)
+    sign = 1 if long else -1
+    a = setup["frames"]["entry"]["atr"] or 0.0
+    entry = price - sign * LIMIT_ATR * a
+    sl = price - sign * STOP_ATR * a
+    risk = (entry - sl) * sign
     active = all(c["ok"] for c in checks) and risk > 0
-    tp = price + TP_R * risk if long else price - TP_R * risk
+    tp = entry + sign * TP_R * risk
     return {
         "active": active,
         "side": side,
-        "entry": _round(price, price),
-        "stop_loss": sl,
+        "order": "limit",
+        "valid_bars": LIMIT_BARS,
+        "valid_hours": LIMIT_BARS * INTERVAL_SECONDS[MODES[mode]["ltf"]] // 3600,
+        "entry": _round(entry, price),
+        "stop_loss": _round(sl, price),
         "take_profit": _round(tp, price),
         "rr": TP_R,
-        "sl_pct": round(100 * risk / price, 2) if risk > 0 else None,
+        "sl_pct": round(100 * risk / entry, 2) if risk > 0 else None,
         "min_notional": MIN_NOTIONAL.get(setup["symbol"], 5),
         "checks": checks,
         "btc_regime": btc_state,
