@@ -18,9 +18,13 @@ MODES = {
 # They beat the v1 rules in all four walk-forward periods but were profitable in only
 # two of them, so the signal is shown as research, not as an automatic signal.
 RULES_V2 = {"entry": "market", "regime": True, "trend200": False, "wide_sl": False, "threshold": 40, "vol": True}
+# v3 = v2 plus positioning filters picked by app/research_deriv.py. It met the auto criteria
+# on 2024-03..2026-10 and stayed positive on unseen 2022..2024-03 data (+0.09R, PF 1.19).
+RULES_V3_POSITIONING = {"oi": "up", "crowd": True, "taker": True}
 VALIDATION = {
-    "swing": {"auto": False, "note": "Lebih baik dari aturan lama di 4/4 periode uji, tapi untung hanya di 2/4 periode. Belum layak jadi sinyal otomatis."},
-    "scalp": {"auto": False, "note": "Semua 96 varian aturan rugi di data uji 15m. Jangan dipakai untuk entry."},
+    "swing": {"auto": False, "stage": "forward_test",
+              "note": "Aturan v3 lolos uji historis 2022–2026 (rata-rata +0,09 s/d +0,21R per trade), tapi edge-nya tipis. Tahap forward test: pakai risiko kecil dulu."},
+    "scalp": {"auto": False, "stage": "rejected", "note": "Semua 96 varian aturan rugi di data uji 15m. Jangan dipakai untuk entry."},
 }
 
 RATINGS = [(60, "Buy"), (25, "Overweight"), (-25, "Hold"), (-60, "Underweight")]
@@ -256,7 +260,8 @@ def btc_regime(btc_htf: list[dict]) -> tuple[list[int], list[int]]:
 
 
 def build_signal(setup: dict, ltf_candles: list[dict], btc_state: int) -> dict:
-    """Rules v2 on top of a setup: stricter score, BTC regime, volatility, market entry."""
+    """Rules v3 on top of a setup: v2 (stricter score, BTC regime, volatility, market entry)
+    plus rising open interest, retail not crowded on our side and taker flow agreeing."""
     mode, side, price = setup["mode"], setup["plan_side"], setup["price"]
     long = side == "long"
     atr_series = atr(ltf_candles)
@@ -267,6 +272,14 @@ def build_signal(setup: dict, ltf_candles: list[dict], btc_state: int) -> dict:
          "ok": abs(setup["score"]) >= RULES_V2["threshold"]},
         {"label": "Searah tren BTC " + MODES[mode]["htf"].upper(), "ok": btc_state == (1 if long else -1)},
         {"label": "Volatilitas di atas median 200 bar", "ok": vol_ok},
+    ]
+    d = setup["derivatives"]
+    oi, rank, taker = d.get("oi_change_24h_pct"), d.get("ls_rank_90d"), d.get("taker_4h")
+    checks += [
+        {"label": "Open interest naik dalam 24 jam", "ok": oi is not None and oi > 0},
+        {"label": "Retail tidak terlalu ramai di sisi yang sama",
+         "ok": rank is not None and (rank <= 0.7 if long else rank >= 0.3)},
+        {"label": "Taker 4 jam terakhir searah", "ok": taker is not None and (taker > 1 if long else taker < 1)},
     ]
     sl = setup["levels"]["stop_loss"]
     risk = (price - sl) if long else (sl - price)
@@ -282,5 +295,6 @@ def build_signal(setup: dict, ltf_candles: list[dict], btc_state: int) -> dict:
         "tp2": _round(tp2, price),
         "checks": checks,
         "btc_regime": btc_state,
+        "rules": "v3",
         **VALIDATION[mode],
     }

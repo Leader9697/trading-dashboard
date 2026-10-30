@@ -52,6 +52,8 @@ export type Signal = {
   checks: { label: string; ok: boolean }[];
   btc_regime: number;
   auto: boolean;
+  rules: string;
+  stage: 'research' | 'forward_test' | 'validated' | 'rejected';
   note: string;
 };
 
