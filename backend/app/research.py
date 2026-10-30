@@ -56,9 +56,22 @@ def precompute(symbol: str, mode: str, htf: list[dict], ltf: list[dict], regime:
     return pre
 
 
-def _manage(long: bool, entry: float, sl: float, ltf: list[dict], start: int, max_hold: int) -> tuple[float, int, str]:
-    """Half off at 2R with stop to entry, rest to 3R. Stop wins on a bar that touches both."""
+def _manage(long: bool, entry: float, sl: float, ltf: list[dict], start: int, max_hold: int,
+            tp_r: float | None = None) -> tuple[float, int, str]:
+    """Half off at 2R with stop to entry, rest to 3R; or, with `tp_r`, all out at one target.
+    Stop wins on a bar that touches both."""
     risk = abs(entry - sl)
+    if tp_r is not None:
+        tp = entry + tp_r * risk if long else entry - tp_r * risk
+        end = min(len(ltf) - 1, start + max_hold)
+        for j in range(start, end + 1):
+            b = ltf[j]
+            if (b["low"] <= sl) if long else (b["high"] >= sl):
+                return -1.0, j, "stop"
+            if (b["high"] >= tp) if long else (b["low"] <= tp):
+                return tp_r, j, "tp"
+        c = ltf[end]["close"]
+        return ((c - entry) if long else (entry - c)) / risk, end, "timeout"
     tp1 = entry + 2 * risk if long else entry - 2 * risk
     tp2 = entry + 3 * risk if long else entry - 3 * risk
     half = False
@@ -138,7 +151,7 @@ def simulate(pre: list, ltf: list[dict], mode: str, v: dict, allow=None) -> list
         if fill is None or start >= n:
             i = last + 1 if v["entry"] != "market" else i + 1
             continue
-        r, exit_j, status = _manage(long, entry, sl, ltf, start, rules["max_hold"])
+        r, exit_j, status = _manage(long, entry, sl, ltf, start, rules["max_hold"], v.get("tp_r"))
         fee_r = FEE_ROUND_TRIP * entry / abs(entry - sl)
         trades.append({"t": ltf[fill]["time"], "r": r - fee_r, "status": status})
         i = exit_j + 1

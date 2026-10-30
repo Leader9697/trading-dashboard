@@ -47,8 +47,10 @@ export type Signal = {
   side: 'long' | 'short';
   entry: number;
   stop_loss: number;
-  tp1: number;
-  tp2: number;
+  take_profit: number;
+  rr: number;
+  sl_pct: number | null;
+  min_notional: number;
   checks: { label: string; ok: boolean }[];
   btc_regime: number;
   auto: boolean;
@@ -63,6 +65,7 @@ export type SnapshotCoin = {
   dir?: 'long' | 'short' | 'wait';
   score?: number;
   plan?: ['long' | 'short', [number, number], number, number, number];
+  sig?: [boolean, 'long' | 'short', number, number, number, number];
   ok?: number;
   error?: string;
 };

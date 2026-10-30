@@ -21,6 +21,8 @@ RULES_V2 = {"entry": "market", "regime": True, "trend200": False, "wide_sl": Fal
 # v3 = v2 plus positioning filters picked by app/research_deriv.py. It met the auto criteria
 # on 2024-03..2026-10 and stayed positive on unseen 2022..2024-03 data (+0.09R, PF 1.19).
 RULES_V3_POSITIONING = {"oi": "up", "crowd": True, "taker": True}
+TP_R = 2.5  # one take profit; 2.5R was best on 2022–2026 among 1.5/2/2.5/3R and the 2R+3R split
+MIN_NOTIONAL = {"BTCUSDT": 100, "ETHUSDT": 20}  # Binance USDT-M minimum order value, others 5 USDT
 VALIDATION = {
     "swing": {"auto": False, "stage": "forward_test",
               "note": "Aturan v3 lolos uji historis 2022–2026 (rata-rata +0,09 s/d +0,21R per trade), tapi edge-nya tipis. Tahap forward test: pakai risiko kecil dulu."},
@@ -239,6 +241,8 @@ def compact(setup: dict) -> dict:
         "oi24": d.get("oi_change_24h_pct"),
         "ls": d.get("long_short_ratio"),
         "ok": sum(1 for c in setup["checklist"] if c["ok"]),
+        **({"sig": [g["active"], g["side"], g["entry"], g["stop_loss"], g["take_profit"],
+                    sum(1 for c in g["checks"] if c["ok"])]} if (g := setup.get("signal")) else {}),
     }
 
 
@@ -284,15 +288,16 @@ def build_signal(setup: dict, ltf_candles: list[dict], btc_state: int) -> dict:
     sl = setup["levels"]["stop_loss"]
     risk = (price - sl) if long else (sl - price)
     active = all(c["ok"] for c in checks) and risk > 0
-    tp1 = price + 2 * risk if long else price - 2 * risk
-    tp2 = price + 3 * risk if long else price - 3 * risk
+    tp = price + TP_R * risk if long else price - TP_R * risk
     return {
         "active": active,
         "side": side,
         "entry": _round(price, price),
         "stop_loss": sl,
-        "tp1": _round(tp1, price),
-        "tp2": _round(tp2, price),
+        "take_profit": _round(tp, price),
+        "rr": TP_R,
+        "sl_pct": round(100 * risk / price, 2) if risk > 0 else None,
+        "min_notional": MIN_NOTIONAL.get(setup["symbol"], 5),
         "checks": checks,
         "btc_regime": btc_state,
         "rules": "v3",

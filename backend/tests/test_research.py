@@ -30,9 +30,14 @@ def test_setup_has_signal_v2(client):
     sig = client.get("/api/setup/ETHUSDT?mode=swing").json()["signal"]
     assert sig["auto"] is False and sig["rules"] == "v3" and len(sig["checks"]) == 6
     if sig["side"] == "long":
-        assert sig["stop_loss"] < sig["entry"] < sig["tp1"] < sig["tp2"]
+        assert sig["stop_loss"] < sig["entry"] < sig["take_profit"]
     else:
-        assert sig["stop_loss"] > sig["entry"] > sig["tp1"] > sig["tp2"]
+        assert sig["stop_loss"] > sig["entry"] > sig["take_profit"]
+    risk = abs(sig["entry"] - sig["stop_loss"])
+    assert abs(abs(sig["take_profit"] - sig["entry"]) - sig["rr"] * risk) <= 0.01 * risk + 1e-6
+    assert sig["sl_pct"] > 0 and sig["min_notional"] == 20
+    coin = client.get("/api/snapshot").json()["coins"][0]
+    assert len(coin["sig"]) == 6
 
 
 def test_backtest_rules_v2_and_folds(client):

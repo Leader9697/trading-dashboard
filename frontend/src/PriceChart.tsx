@@ -9,13 +9,13 @@ import {
   type IChartApi,
   type Time,
 } from 'lightweight-charts';
-import type { CandleResponse, Levels } from './api';
+import type { CandleResponse, Signal } from './api';
 
 function css(name: string) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
-export function PriceChart({ data, levels }: { data: CandleResponse; levels: Levels | null }) {
+export function PriceChart({ data, signal }: { data: CandleResponse; signal: Signal | null }) {
   const host = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -64,14 +64,11 @@ export function PriceChart({ data, levels }: { data: CandleResponse; levels: Lev
       s.setData(points.map((p) => ({ ...p, time: p.time as Time })));
     }
 
-    if (levels) {
-      const entry = css('--accent');
+    if (signal) {
       const marks = [
-        { price: levels.entry_zone[0], color: entry, title: 'Entry', style: LineStyle.Dotted },
-        { price: levels.entry_zone[1], color: entry, title: '', style: LineStyle.Dotted },
-        { price: levels.stop_loss, color: down, title: 'SL', style: LineStyle.Solid },
-        { price: levels.tp1, color: up, title: 'TP1', style: LineStyle.Dashed },
-        { price: levels.tp2, color: up, title: 'TP2', style: LineStyle.Dashed },
+        { price: signal.entry, color: css('--accent'), title: 'Entry', style: LineStyle.Dotted },
+        { price: signal.stop_loss, color: down, title: 'SL', style: LineStyle.Solid },
+        { price: signal.take_profit, color: up, title: 'TP', style: LineStyle.Dashed },
       ];
       for (const m of marks) {
         candles.createPriceLine({ price: m.price, color: m.color, lineWidth: 1, lineStyle: m.style, axisLabelVisible: true, title: m.title });
@@ -80,7 +77,7 @@ export function PriceChart({ data, levels }: { data: CandleResponse; levels: Lev
 
     chart.timeScale().fitContent();
     return () => chart.remove();
-  }, [data, levels]);
+  }, [data, signal]);
 
   return <div className="chart" ref={host} />;
 }

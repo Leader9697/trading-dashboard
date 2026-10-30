@@ -318,3 +318,12 @@ footer { margin-top: 24px; font-size: 12px; color: var(--muted); text-align: cen
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+.sizing { margin-top: 20px; padding-top: 4px; border-top: 1px solid var(--border); }
+.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 8px 0 4px; }
+.field { display: grid; gap: 4px; min-width: 0; }
+.field > span:first-child { font-size: 12px; color: var(--muted); }
+.input-suffix { display: flex; align-items: center; gap: 6px; }
+.input-suffix input { width: 100%; min-width: 0; font-variant-numeric: tabular-nums; }
+.input-suffix small { font-size: 12px; color: var(--muted); }
+.warn { margin-top: 12px; font-size: 13px; color: var(--down); }
