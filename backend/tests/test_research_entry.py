@@ -26,3 +26,12 @@ def test_run_reports_baseline_and_ranking(monkeypatch):
     out = E.run(data, {s: [] for s in data})
     assert out["variants"] == len(E.ENTRIES) * len(E.STOPS) * len(E.TARGETS)
     assert out["baseline"]["v"] == "market | SL struct | TP 2.5R" and out["top_is"]
+
+
+def test_no_target_on_the_limit_fill_bar():
+    # the fill bar's high reaches the target, but that high may have come before the dip
+    ltf = [{"time": t, "open": 100, "high": 100.2, "low": 99.8, "close": 100} for t in range(10)]
+    ltf[2] = {"time": 2, "open": 100, "high": 103, "low": 98.9, "close": 99.5}
+    p = {"side": "long", "sl": 98.0, "atr": 2.0}
+    t = E.trade(p, ltf, 1, ("pullback", 0.5, 2, "skip"), "struct", 2.0, 5)
+    assert t["status"] == "timeout"

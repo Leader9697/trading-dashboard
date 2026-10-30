@@ -61,7 +61,7 @@ def trade(p: dict, ltf: list[dict], i: int, entry_v: tuple, stop_v, tp_r: float,
     close, atr = ltf[i]["close"], p["atr"]
     sl = p["sl"] if stop_v == "struct" else close - sign * stop_v[1] * atr
     kind, k, wait, fallback = entry_v
-    fill = start = None
+    fill = None
     if kind == "market":
         entry, fill = ltf[i + 1]["open"], i + 1
     else:
@@ -84,7 +84,18 @@ def trade(p: dict, ltf: list[dict], i: int, entry_v: tuple, stop_v, tp_r: float,
     risk = (entry - sl) * sign
     if risk <= 0:
         return None
-    r, exit_j, status = R._manage(long, entry, sl, ltf, fill, max_hold, tp_r)
+    start = fill
+    if kind != "market":
+        # A limit fills somewhere inside its bar and the order of that bar's high and low
+        # is unknown: count a stop on the fill bar, but no target until the next bar.
+        b = ltf[fill]
+        if (b["low"] <= sl) if long else (b["high"] >= sl):
+            return {"t": b["time"], "r": -1 - FEE_ROUND_TRIP * entry / risk, "exit": fill, "status": "stop",
+                    "risk_pct": 100 * risk / entry}
+        start = fill + 1
+        if start >= len(ltf):
+            return None
+    r, exit_j, status = R._manage(long, entry, sl, ltf, start, max_hold, tp_r)
     return {"t": ltf[fill]["time"], "r": r - FEE_ROUND_TRIP * entry / risk, "exit": exit_j, "status": status,
             "risk_pct": 100 * risk / entry}
 
