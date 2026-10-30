@@ -24,6 +24,13 @@ class Settings:
     # Connection string Vercel sets when an Edge Config store is linked:
     # https://edge-config.vercel.com/<ecfg_id>?token=<read token>
     edge_config: str = field(default_factory=lambda: _env("EDGE_CONFIG"))
+    # Telegram signal alerts: bot token from @BotFather. The chat id is found from the
+    # latest message sent to the bot when TELEGRAM_CHAT_ID is not set.
+    telegram_token: str = field(default_factory=lambda: _env("TELEGRAM_BOT_TOKEN"))
+    telegram_chat_id: str = field(default_factory=lambda: _env("TELEGRAM_CHAT_ID"))
+    # Account size and risk used for the position size in alerts.
+    alert_equity: float = field(default_factory=lambda: float(_env("ALERT_EQUITY", "55")))
+    alert_risk_pct: float = field(default_factory=lambda: float(_env("ALERT_RISK_PCT", "1")))
 
     @property
     def edge_config_item_url(self) -> tuple[str, str] | None:

@@ -1,0 +1,14 @@
+name: Signal alert
+
+# Runs a few minutes after every 4h candle close (00, 04, 08, 12, 16, 20 UTC)
+# and asks the dashboard to send Telegram alerts for active signals.
+on:
+  schedule:
+    - cron: "3 */4 * * *"
+  workflow_dispatch:
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -fsS --max-time 60 https://trading-dashboard-two-orcin.vercel.app/api/notify

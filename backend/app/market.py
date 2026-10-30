@@ -44,12 +44,11 @@ def binance_klines(symbol: str, interval: str, limit: int) -> list[dict]:
     return _klines_request({"symbol": symbol, "interval": interval, "limit": limit})
 
 
-def binance_klines_paged(symbol: str, interval: str, limit: int) -> list[dict]:
+def binance_klines_paged(symbol: str, interval: str, limit: int, end_ms: int | None = None) -> list[dict]:
     """Binance caps one request at 1000 bars; walk backwards with endTime for more."""
-    if limit <= 1000:
+    if limit <= 1000 and end_ms is None:
         return binance_klines(symbol, interval, limit)
     out: list[dict] = []
-    end_ms: int | None = None
     while len(out) < limit:
         batch = min(1000, limit - len(out))
         params = {"symbol": symbol, "interval": interval, "limit": batch}
@@ -85,12 +84,17 @@ def _klines_request(params: dict) -> list[dict]:
     raise MarketError(f"Binance tidak bisa dihubungi: {last_error}")
 
 
-def get_klines(settings: Settings, symbol: str, interval: str, limit: int = 300) -> list[dict]:
+def get_klines(settings: Settings, symbol: str, interval: str, limit: int = 300, end: int | None = None) -> list[dict]:
+    """`end` (unix seconds) returns the bars that open before it, for loading older history."""
     if interval not in INTERVAL_SECONDS:
         raise MarketError(f"Interval {interval} tidak didukung")
     if settings.data_mode == "demo":
-        return demo_klines(symbol, interval, limit)
-    return binance_klines_paged(symbol, interval, limit)
+        rows = demo_klines(symbol, interval, limit)
+        if end is None:
+            return rows
+        shift = end - INTERVAL_SECONDS[interval] - rows[-1]["time"]
+        return [{**c, "time": c["time"] + shift} for c in rows] if end > 1793318400 - 3 * 365 * 86400 else []
+    return binance_klines_paged(symbol, interval, limit, end * 1000 - 1 if end else None)
 
 
 def _get_json(url: str, params: dict) -> object | None:

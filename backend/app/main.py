@@ -16,7 +16,7 @@ from . import journal as journal_mod
 from .backtest import BARS, summarize
 from .indicators import ema
 from .market import INTERVAL_SECONDS, MarketError, derivatives, fear_greed, get_klines
-from . import research
+from . import notify, research
 from .backtest import stats as bt_stats
 from .setup import MODES, RULES_V2, btc_regime, build_setup, build_signal, compact
 
@@ -87,12 +87,14 @@ def candles(
     symbol: str,
     interval: str = Query("4h"),
     limit: int = Query(300, ge=50, le=1000),
+    end: int | None = Query(None, gt=0),
     settings: Settings = Depends(get_settings),
 ) -> dict:
     symbol = _symbol(symbol)
     try:
-        rows = _cached(("k", settings.data_mode, symbol, interval, limit),
-                       lambda: get_klines(settings, symbol, interval, limit))
+        rows = _cached(("k", settings.data_mode, symbol, interval, limit, end),
+                       lambda: get_klines(settings, symbol, interval, limit, end),
+                       ttl=86400 if end else None)
     except MarketError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     closes = [c["close"] for c in rows]
@@ -101,6 +103,12 @@ def candles(
         for n in (20, 50, 200)
     }
     return {"symbol": symbol, "interval": interval, "candles": rows, "indicators": lines}
+
+
+@app.get("/api/notify")
+def notify_signals(test: bool = False, settings: Settings = Depends(get_settings)) -> dict:
+    """Called by the scheduled job after each 4h close; `test=true` sends a hello message."""
+    return notify.run(settings, lambda sym: _setup(settings, sym, "swing"), test=test)
 
 
 @app.get("/api/setup/{symbol}")
