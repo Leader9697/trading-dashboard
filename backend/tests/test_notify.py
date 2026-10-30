@@ -33,3 +33,9 @@ def test_sizing_flags_below_minimum_order():
 
 def test_without_token_does_nothing(client):
     assert client.get("/api/notify").json()["ok"] is False
+
+
+def test_reports_telegram_rejection(monkeypatch):
+    monkeypatch.setattr(notify, "_call", lambda s, m, **p: {"ok": False, "error_code": 401, "description": "Unauthorized"})
+    out = notify.run(replace(_settings(), telegram_chat_id=""), lambda s: {})
+    assert out["ok"] is False and "401 Unauthorized" in out["reason"]
