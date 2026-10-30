@@ -4,7 +4,18 @@
   "buildCommand": "cd frontend && npm run build",
   "outputDirectory": "frontend/dist",
   "functions": {
-    "api/index.py": { "maxDuration": 60, "excludeFiles": "{frontend/**,backend/tests/**}" }
+    "api/index.py": {
+      "maxDuration": 60,
+      "excludeFiles": "{frontend/**,backend/tests/**}"
+    }
   },
-  "rewrites": [{ "source": "/api/(.*)", "destination": "/api/index" }]
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index"
+    }
+  ],
+  "regions": [
+    "sin1"
+  ]
 }

@@ -3,23 +3,19 @@ import {
   CandlestickSeries,
   ColorType,
   createChart,
-  createSeriesMarkers,
   HistogramSeries,
   LineSeries,
+  LineStyle,
   type IChartApi,
-  type SeriesMarker,
   type Time,
 } from 'lightweight-charts';
-import type { CandleResponse, Marker } from './api';
-
-const BULLISH = new Set(['buy', 'add']);
-const BEARISH = new Set(['sell', 'reduce', 'avoid']);
+import type { CandleResponse, Levels } from './api';
 
 function css(name: string) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
-export function PriceChart({ data, markers }: { data: CandleResponse; markers: Marker[] }) {
+export function PriceChart({ data, levels }: { data: CandleResponse; levels: Levels | null }) {
   const host = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -36,7 +32,7 @@ export function PriceChart({ data, markers }: { data: CandleResponse; markers: M
       },
       grid: { vertLines: { color: css('--grid') }, horzLines: { color: css('--grid') } },
       rightPriceScale: { borderVisible: false },
-      timeScale: { borderVisible: false },
+      timeScale: { borderVisible: false, timeVisible: true },
     });
 
     const candles = chart.addSeries(CandlestickSeries, {
@@ -49,55 +45,42 @@ export function PriceChart({ data, markers }: { data: CandleResponse; markers: M
     candles.setData(data.candles.map((c) => ({ ...c, time: c.time as Time })));
 
     const volume = chart.addSeries(HistogramSeries, { priceScaleId: 'vol', priceFormat: { type: 'volume' } });
-    chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+    chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
     volume.setData(
       data.candles.map((c) => ({
         time: c.time as Time,
-        value: c.volume ?? 0,
+        value: c.volume,
         color: c.close >= c.open ? css('--up-soft') : css('--down-soft'),
       })),
     );
 
     const lines = [
-      { points: data.indicators.sma20, color: css('--ma20') },
-      { points: data.indicators.sma50, color: css('--ma50') },
+      { points: data.indicators.ema20, color: css('--ema20') },
+      { points: data.indicators.ema50, color: css('--ema50') },
+      { points: data.indicators.ema200, color: css('--ema200') },
     ];
     for (const { points, color } of lines) {
-      const s = chart.addSeries(LineSeries, { color, lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
+      const s = chart.addSeries(LineSeries, { color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
       s.setData(points.map((p) => ({ ...p, time: p.time as Time })));
     }
 
-    // A report can be dated on a non-trading day; pin it to the last candle on or before that date.
-    const times = data.candles.map((c) => c.time);
-    const snap = (t: string) => {
-      let found: string | null = null;
-      for (const ct of times) {
-        if (ct > t) break;
-        found = ct;
+    if (levels) {
+      const entry = css('--accent');
+      const marks = [
+        { price: levels.entry_zone[0], color: entry, title: 'Entry', style: LineStyle.Dotted },
+        { price: levels.entry_zone[1], color: entry, title: '', style: LineStyle.Dotted },
+        { price: levels.stop_loss, color: down, title: 'SL', style: LineStyle.Solid },
+        { price: levels.tp1, color: up, title: 'TP1', style: LineStyle.Dashed },
+        { price: levels.tp2, color: up, title: 'TP2', style: LineStyle.Dashed },
+      ];
+      for (const m of marks) {
+        candles.createPriceLine({ price: m.price, color: m.color, lineWidth: 1, lineStyle: m.style, axisLabelVisible: true, title: m.title });
       }
-      return found;
-    };
-    const seriesMarkers: SeriesMarker<Time>[] = markers
-      .map((m) => ({ ...m, time: snap(m.time) }))
-      .filter((m): m is Marker => m.time !== null)
-      .map((m) => {
-        const bull = BULLISH.has(m.action);
-        const bear = BEARISH.has(m.action);
-        const marker: SeriesMarker<Time> = {
-          time: m.time as Time,
-          position: bull ? 'belowBar' : 'aboveBar',
-          shape: bull ? 'arrowUp' : bear ? 'arrowDown' : 'circle',
-          color: bull ? up : bear ? down : css('--muted'),
-          text: m.label,
-        };
-        return marker;
-      })
-      .sort((a, b) => String(a.time).localeCompare(String(b.time)));
-    createSeriesMarkers(candles, seriesMarkers);
+    }
 
     chart.timeScale().fitContent();
     return () => chart.remove();
-  }, [data, markers]);
+  }, [data, levels]);
 
   return <div className="chart" ref={host} />;
 }

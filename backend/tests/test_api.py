@@ -2,89 +2,101 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from app import signals
-from app.main import app
-from app.providers import demo_candles
+from app import main
+from app.indicators import ema, pivots, rsi
+from app.market import demo_klines
+from app.setup import build_levels, build_setup, compact, rating
 
 
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setenv("DATA_MODE", "demo")
-    monkeypatch.delenv("DSA_URL", raising=False)
-    monkeypatch.delenv("DEXTER_URL", raising=False)
-    return TestClient(app)
+    monkeypatch.delenv("EDGE_CONFIG", raising=False)
+    main._cache.clear()
+    return TestClient(main.app)
 
 
-def test_config_reports_demo_sources(client):
+def test_config(client):
     body = client.get("/api/config").json()
-    assert body["sources"] == {"candles": "demo", "decision": "rules", "research": None}
-    assert "BBCA.JK" in body["watchlist"]
+    assert body["watchlist"][0] == "BTCUSDT"
+    assert body["modes"]["swing"] == {"trend": "1d", "entry": "4h"}
+    assert body["debate_enabled"] is False
 
 
-def test_candles_are_deterministic_and_have_indicators(client):
-    a = client.get("/api/candles/bbca.jk?days=120").json()
-    b = client.get("/api/candles/BBCA.JK?days=120").json()
-    assert a == b
-    assert len(a["candles"]) == 120
-    assert len(a["indicators"]["sma20"]) == 101
-    assert len(a["indicators"]["sma50"]) == 71
+def test_candles_have_unix_times_and_emas(client):
+    body = client.get("/api/candles/btcusdt?interval=1h&limit=300").json()
+    assert len(body["candles"]) == 300
+    assert isinstance(body["candles"][0]["time"], int)
+    assert len(body["indicators"]["ema200"]) == 101
 
 
-def test_decision_from_rules(client):
-    body = client.get("/api/decision/AAPL").json()
-    assert body["source"] == "rules"
-    assert body["action"] in signals.ACTION_LABELS
-    assert 0 <= body["score"] <= 100
-    assert body["strategy"]["stop_loss"]
-    for m in body["markers"]:
-        assert m["action"] in {"buy", "sell"}
+@pytest.mark.parametrize("mode", ["swing", "scalp"])
+def test_setup_levels_are_consistent(client, mode):
+    s = client.get(f"/api/setup/ETHUSDT?mode={mode}").json()
+    lv = s["levels"]
+    assert s["direction"] in {"long", "short", "wait"}
+    if s["plan_side"] == "long":
+        assert lv["stop_loss"] < lv["entry"] < lv["tp1"] < lv["tp2"]
+    else:
+        assert lv["tp2"] < lv["tp1"] < lv["entry"] < lv["stop_loss"]
+    assert 0.8 <= lv["sl_atr"] <= 2.5 + 1e-6
+    assert len(s["checklist"]) == 6
 
 
-def test_invalid_ticker_rejected(client):
-    assert client.get("/api/candles/AA$PL").status_code == 422
+def test_snapshot_is_compact(client):
+    body = client.get("/api/snapshot").json()
+    assert [c["s"] for c in body["coins"]] == ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"]
+    assert len(client.get("/api/snapshot").content) < 2500
 
 
-def test_research_needs_dexter(client):
-    r = client.post("/api/research", json={"symbol": "AAPL", "question": "margin 5 tahun"})
-    assert r.status_code == 503
+def test_bad_inputs(client):
+    assert client.get("/api/setup/BTC-USDT").status_code == 422
+    assert client.get("/api/setup/BTCUSDT?mode=yolo").status_code == 422
 
 
-def test_sma_and_rsi_basics():
-    assert signals.sma([1, 2, 3, 4], 2) == [None, 1.5, 2.5, 3.5]
-    rising = [float(i) for i in range(30)]
-    assert signals.rsi(rising)[-1] == 100.0
+def test_debate_unconfigured(client):
+    assert client.get("/api/debate").json() == {"available": False}
 
 
-def test_rule_decision_needs_history():
-    with pytest.raises(signals.ProviderError):
-        signals.rule_decision(demo_candles("X", 30))
+def test_debate_reads_edge_config(monkeypatch):
+    monkeypatch.setenv("EDGE_CONFIG", "https://edge-config.vercel.com/ecfg_abc?token=tok")
+    seen = {}
+
+    def fake_get(url, headers=None, timeout=None, params=None):
+        seen["url"], seen["auth"] = url, headers["Authorization"]
+        return httpx.Response(200, json={"updated_at": "2026-10-30T12:00:00Z", "coins": {}})
+
+    monkeypatch.setattr(main.httpx, "get", fake_get)
+    body = TestClient(main.app).get("/api/debate").json()
+    assert body["available"] is True and body["updated_at"].startswith("2026")
+    assert seen == {"url": "https://edge-config.vercel.com/ecfg_abc/item/debate", "auth": "Bearer tok"}
 
 
-def test_dsa_decision_maps_report(monkeypatch):
-    monkeypatch.setenv("DSA_URL", "http://dsa")
-    monkeypatch.delenv("DATA_MODE", raising=False)
+def test_indicator_basics():
+    assert ema([1, 2, 3], 3)[-1] == 2
+    assert rsi([float(i) for i in range(30)])[-1] == 100.0
+    bars = [{"high": h, "low": h - 1} for h in [1, 2, 3, 9, 3, 2, 1, 2, 3]]
+    highs, lows = pivots(bars, width=3)
+    assert highs == [9]
 
-    def fake_get(url, params=None, timeout=None):
-        req = httpx.Request("GET", url)
-        if url.endswith("/api/v1/history"):
-            return httpx.Response(200, request=req, json={"items": [
-                {"id": 7, "action": "buy", "action_label": "买入", "created_at": "2026-10-29T18:00:00"},
-                {"id": 6, "action": "hold", "created_at": "2026-10-28T18:00:00"},
-            ]})
-        assert url.endswith("/api/v1/history/7")
-        return httpx.Response(200, request=req, json={
-            "meta": {"created_at": "2026-10-29T18:00:00"},
-            "summary": {"action": "buy", "sentiment_score": 78, "trend_prediction": "看多",
-                        "analysis_summary": "Momentum kuat", "operation_advice": "Beli bertahap\nJaga stop"},
-            "strategy": {"ideal_buy": "9100", "stop_loss": "8800", "take_profit": "9800"},
-            "details": {"raw_result": {"dashboard": {"intelligence": {"risk_alerts": ["Rupiah melemah"]}}}},
-        })
 
-    monkeypatch.setattr(signals.httpx, "get", fake_get)
-    body = TestClient(app).get("/api/decision/BBCA.JK").json()
-    assert body["source"] == "daily_stock_analysis"
-    assert body["action"] == "buy" and body["score"] == 78
-    assert body["reasons"] == ["Beli bertahap", "Jaga stop"]
-    assert body["risks"] == ["Rupiah melemah"]
-    assert [m["time"] for m in body["markers"]] == ["2026-10-28", "2026-10-29"]
-    assert body["strategy"]["stop_loss"] == "8800"
+def test_long_levels_use_nearest_support():
+    ltf = {"atr": 10.0, "ema20": 990.0}
+    lv = build_levels("long", 1000.0, ltf, highs=[1100.0], lows=[900.0, 960.0, 985.0])
+    # anchor = max(985 support, 990 ema20) = 990; SL just beyond the 985 support
+    assert lv["entry"] == pytest.approx(991.5)
+    assert lv["stop_loss"] == pytest.approx(982.0)
+    assert lv["tp1"] == pytest.approx(991.5 + 2 * 9.5)
+    assert lv["hurdle"] is None
+
+
+def test_strong_uptrend_gives_long():
+    up = [{"time": i, "open": 100 + i, "high": 101 + i, "low": 99 + i, "close": 100.5 + i, "volume": 10.0}
+          for i in range(300)]
+    s = build_setup("TEST", "swing", up, up, {"funding_pct": 0.01}, None)
+    assert s["direction"] == "long" and rating(s["score"]) in {"Buy", "Overweight"}
+    assert compact(s)["plan"][0] == "long"
+
+
+def test_demo_klines_deterministic():
+    assert demo_klines("BTCUSDT", "4h", 50) == demo_klines("BTCUSDT", "4h", 50)

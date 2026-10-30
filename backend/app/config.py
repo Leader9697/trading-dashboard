@@ -2,6 +2,7 @@
 
 import os
 from dataclasses import dataclass, field
+from urllib.parse import parse_qs, urlparse
 
 
 def _env(name: str, default: str = "") -> str:
@@ -10,30 +11,30 @@ def _env(name: str, default: str = "") -> str:
 
 @dataclass(frozen=True)
 class Settings:
-    # Base URL of a running daily_stock_analysis server, e.g. http://localhost:8000
-    dsa_url: str = field(default_factory=lambda: _env("DSA_URL").rstrip("/"))
-    # Base URL of the dexter bridge (Tahap 3), e.g. http://localhost:8787
-    dexter_url: str = field(default_factory=lambda: _env("DEXTER_URL").rstrip("/"))
-    # Comma separated tickers shown in the watchlist bar.
+    # Comma separated Binance USDT pairs shown in the watchlist bar.
     watchlist: tuple[str, ...] = field(
         default_factory=lambda: tuple(
             s.strip().upper()
-            for s in _env("WATCHLIST", "BBCA.JK,BBRI.JK,TLKM.JK,AAPL,NVDA").split(",")
+            for s in _env("WATCHLIST", "BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT").split(",")
             if s.strip()
         )
     )
-    # demo | yfinance | dsa. Empty = dsa when DSA_URL is set, otherwise yfinance.
-    data_mode: str = field(default_factory=lambda: _env("DATA_MODE").lower())
+    # binance (live public market data) | demo (synthetic, offline)
+    data_mode: str = field(default_factory=lambda: _env("DATA_MODE", "binance").lower())
+    # Connection string Vercel sets when an Edge Config store is linked:
+    # https://edge-config.vercel.com/<ecfg_id>?token=<read token>
+    edge_config: str = field(default_factory=lambda: _env("EDGE_CONFIG"))
 
     @property
-    def candle_source(self) -> str:
-        if self.data_mode in {"demo", "yfinance", "dsa"}:
-            return self.data_mode
-        return "dsa" if self.dsa_url else "yfinance"
-
-    @property
-    def decision_source(self) -> str:
-        return "dsa" if self.dsa_url and self.data_mode != "demo" else "rules"
+    def edge_config_item_url(self) -> tuple[str, str] | None:
+        """Return (base item URL, token) for reading items, or None when unset."""
+        if not self.edge_config:
+            return None
+        parsed = urlparse(self.edge_config)
+        token = parse_qs(parsed.query).get("token", [""])[0]
+        if not token:
+            return None
+        return f"{parsed.scheme}://{parsed.netloc}{parsed.path}/item", token
 
 
 def get_settings() -> Settings:
