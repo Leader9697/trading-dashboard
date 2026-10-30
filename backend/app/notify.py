@@ -28,10 +28,18 @@ def _call(settings: Settings, method: str, **params) -> dict:
     return resp.json()
 
 
+class TelegramError(Exception):
+    pass
+
+
 def chat_id(settings: Settings) -> str | None:
     if settings.telegram_chat_id:
         return settings.telegram_chat_id
-    updates = _call(settings, "getUpdates").get("result") or []
+    reply = _call(settings, "getUpdates")
+    if not reply.get("ok", True):
+        # e.g. 401 Unauthorized for a wrong token, 409 Conflict when a webhook is set
+        raise TelegramError(f"Telegram menolak: {reply.get('error_code')} {reply.get('description')}")
+    updates = reply.get("result") or []
     for u in reversed(updates):
         msg = u.get("message") or u.get("channel_post")
         if msg:
@@ -74,7 +82,10 @@ def run(settings: Settings, setup_for, now: float | None = None, test: bool = Fa
     """`setup_for(symbol)` returns the dashboard setup (with its signal) for one coin."""
     if not settings.telegram_token:
         return {"ok": False, "reason": "TELEGRAM_BOT_TOKEN belum diisi"}
-    chat = chat_id(settings)
+    try:
+        chat = chat_id(settings)
+    except TelegramError as exc:
+        return {"ok": False, "reason": str(exc)}
     if chat is None:
         return {"ok": False, "reason": "Kirim pesan apa saja ke bot dulu supaya chat id ketemu"}
     now = time.time() if now is None else now
