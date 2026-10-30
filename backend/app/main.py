@@ -12,8 +12,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .config import Settings, get_settings
+from . import journal as journal_mod
+from .backtest import BARS, summarize
 from .indicators import ema
-from .market import MarketError, derivatives, fear_greed, get_klines
+from .market import INTERVAL_SECONDS, MarketError, derivatives, fear_greed, get_klines
 from .setup import MODES, build_setup, compact
 
 app = FastAPI(title="Crypto Trade Setup Gateway", version="0.2.0")
@@ -28,9 +30,9 @@ _cache: dict[tuple, tuple[float, object]] = {}
 CACHE_SECONDS = 60
 
 
-def _cached(key: tuple, fn):
+def _cached(key: tuple, fn, ttl: int = CACHE_SECONDS):
     hit = _cache.get(key)
-    if hit and time.monotonic() - hit[0] < CACHE_SECONDS:
+    if hit and time.monotonic() - hit[0] < ttl:
         return hit[1]
     value = fn()
     _cache[key] = (time.monotonic(), value)
@@ -121,21 +123,86 @@ def snapshot(mode: str = "swing", settings: Settings = Depends(get_settings)) ->
     return {"t": int(time.time()), "mode": mode, "fng": fear_greed(settings), "coins": coins}
 
 
-@app.get("/api/debate")
-def debate(settings: Settings = Depends(get_settings)) -> dict:
+@app.get("/api/backtest/{symbol}")
+def backtest(symbol: str, mode: str = "swing", settings: Settings = Depends(get_settings)) -> dict:
+    """Walk-forward test of the same setup rules on past candles. Heavy, so cached for 30 minutes."""
+    symbol, mode = _symbol(symbol), _mode(mode)
+
+    def compute():
+        cfg = MODES[mode]
+        ltf_bars = BARS[mode]
+        htf_bars = ltf_bars * INTERVAL_SECONDS[cfg["ltf"]] // INTERVAL_SECONDS[cfg["htf"]] + 320
+        ltf = get_klines(settings, symbol, cfg["ltf"], ltf_bars)
+        htf = get_klines(settings, symbol, cfg["htf"], htf_bars)
+        if settings.data_mode == "binance":
+            ltf = ltf[:-1]  # the newest bar is still open
+        return summarize(symbol, mode, htf, ltf)
+
+    try:
+        return _cached(("bt", settings.data_mode, symbol, mode), compute, ttl=1800)
+    except MarketError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+def _edge_item(settings: Settings, key: str):
+    """Read one Edge Config item. Returns None when unconfigured or missing."""
     target = settings.edge_config_item_url
     if target is None:
-        return {"available": False}
+        return None
     base, token = target
     try:
-        resp = httpx.get(f"{base}/debate", headers={"Authorization": f"Bearer {token}"}, timeout=10)
+        resp = httpx.get(f"{base}/{key}", headers={"Authorization": f"Bearer {token}"}, timeout=10)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=f"Edge Config gagal: {exc}") from exc
     if resp.status_code == 404:
-        return {"available": False}
+        return None
     if resp.status_code != 200:
         raise HTTPException(status_code=502, detail=f"Edge Config HTTP {resp.status_code}")
-    return {"available": True, **resp.json()}
+    return resp.json()
+
+
+@app.get("/api/debate")
+def debate(settings: Settings = Depends(get_settings)) -> dict:
+    item = _edge_item(settings, "debate")
+    return {"available": False} if item is None else {"available": True, **item}
+
+
+@app.get("/api/journal")
+def journal(settings: Settings = Depends(get_settings)) -> dict:
+    """AI debate calls replayed against real candles, plus ready rows for the next append."""
+    rows = _edge_item(settings, "journal") or []
+    interval = MODES[journal_mod.MODE]["ltf"]
+    results = []
+    for sym in sorted({r[1] for r in rows}):
+        try:
+            candles = _cached(("k", settings.data_mode, sym, interval, 300),
+                              lambda: get_klines(settings, sym, interval, 300))
+        except MarketError:
+            candles = []
+        results += [journal_mod.evaluate(r, candles) for r in rows if r[1] == sym]
+    results.sort(key=lambda r: r["ts"])
+    busy = {r["symbol"] for r in results if r["status"] in journal_mod.OPEN_STATES}
+
+    candidates = {}
+    now = int(time.time())
+    for sym in settings.watchlist:
+        if sym in busy:
+            continue
+        try:
+            st = _setup(settings, sym, journal_mod.MODE)
+        except MarketError:
+            continue
+        lv = st["levels"]
+        candidates[sym] = [now, sym, "L" if st["plan_side"] == "long" else "S",
+                           lv["entry"], lv["stop_loss"], lv["tp1"], lv["tp2"]]
+    return {
+        "enabled": settings.edge_config_item_url is not None,
+        "max_rows": journal_mod.MAX_ROWS,
+        "rows": rows,
+        "results": results,
+        "summary": journal_mod.summarize(results),
+        "candidates": candidates,
+    }
 
 
 # Serve the built frontend (frontend/dist) from the same port when it exists.

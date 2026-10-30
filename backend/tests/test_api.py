@@ -8,14 +8,6 @@ from app.market import demo_klines
 from app.setup import build_levels, build_setup, compact, rating
 
 
-@pytest.fixture
-def client(monkeypatch):
-    monkeypatch.setenv("DATA_MODE", "demo")
-    monkeypatch.delenv("EDGE_CONFIG", raising=False)
-    main._cache.clear()
-    return TestClient(main.app)
-
-
 def test_config(client):
     body = client.get("/api/config").json()
     assert body["watchlist"][0] == "BTCUSDT"
