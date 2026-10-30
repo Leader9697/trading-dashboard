@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 import random
 from datetime import date, timedelta
 
@@ -52,6 +53,9 @@ def demo_candles(symbol: str, days: int) -> list[dict]:
 def yfinance_candles(symbol: str, days: int) -> list[dict]:
     import yfinance as yf
 
+    if os.getenv("VERCEL"):
+        # Serverless filesystem is read-only except /tmp.
+        yf.set_tz_cache_location("/tmp/yfinance-tz")
     period = "1y" if days <= 250 else "2y"
     df = yf.Ticker(symbol).history(period=period, interval="1d", auto_adjust=False)
     if df is None or df.empty:

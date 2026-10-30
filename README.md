@@ -40,6 +40,13 @@ npm run dev                     # buka http://localhost:5173
 
 Atau satu port saja: `npm run build` di `frontend/`, lalu backend otomatis menyajikan `frontend/dist` di http://localhost:8100.
 
+## Deploy ke Vercel
+
+1. Buka [vercel.com/new](https://vercel.com/new), pilih repo `trading-dashboard`, lalu klik Deploy. Pengaturan build sudah ada di `vercel.json`, jadi tidak perlu diubah.
+2. Opsional, di Settings → Environment Variables: `WATCHLIST`, `DATA_MODE`, `DSA_URL`, `DEXTER_URL` (lihat `backend/.env.example`), lalu Redeploy.
+
+Frontend disajikan sebagai file statis, dan `/api/*` dijalankan oleh fungsi Python `api/index.py`. Tanpa variabel apa pun, harga diambil dari Yahoo Finance. Kalau Yahoo menolak IP Vercel, set `DATA_MODE=demo` untuk sementara. `DSA_URL` harus berupa alamat publik (bukan `localhost`) supaya bisa dijangkau dari Vercel.
+
 ## Tiga mode data
 
 1. **Demo** (`DATA_MODE=demo`): data sintetis, tanpa internet dan tanpa API key. Cocok untuk mencoba tampilan.
