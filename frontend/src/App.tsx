@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { api, fmt, type Backtest, type CandleResponse, type Config, type Debate, type DebateCoin, type Journal, type LinePoint, type Mode, type Setup, type Snapshot, type Stats } from './api';
+import { api, fmt, type Backtest, type CandleResponse, type Config, type Debate, type DebateCoin, type Fold, type Journal, type LinePoint, type Mode, type Rules, type Setup, type Signal, type Snapshot, type Stats } from './api';
 import { PriceChart } from './PriceChart';
 
 const DIR_LABEL = { long: 'LONG', short: 'SHORT', wait: 'TUNGGU' } as const;
@@ -180,8 +180,26 @@ function SetupCard({ setup }: { setup: Setup }) {
       <ul className="checklist">
         {setup.checklist.map((c) => <li key={c.label} className={c.ok ? 'ok' : 'no'}>{c.label}</li>)}
       </ul>
+      <SignalBox sig={setup.signal} />
       <p className="source">Tren {setup.timeframes.trend}, entry {setup.timeframes.entry} · candle {wib(setup.as_of)}</p>
     </>
+  );
+}
+
+function SignalBox({ sig }: { sig: Signal }) {
+  return (
+    <div className={`signal ${sig.active ? (sig.side === 'long' ? 'up' : 'down') : ''}`}>
+      <h3>Sinyal aturan v2</h3>
+      {sig.active ? (
+        <p><strong>{sig.side.toUpperCase()} sekarang</strong> di ±{fmt(sig.entry)} · SL <span className="down">{fmt(sig.stop_loss)}</span> · TP1 <span className="up">{fmt(sig.tp1)}</span> · TP2 <span className="up">{fmt(sig.tp2)}</span></p>
+      ) : (
+        <p className="muted">Belum ada sinyal: syarat di bawah belum terpenuhi semua.</p>
+      )}
+      <ul className="checklist">
+        {sig.checks.map((c) => <li key={c.label} className={c.ok ? 'ok' : 'no'}>{c.label}</li>)}
+      </ul>
+      <p className="note">{sig.auto ? 'Lolos uji sinyal otomatis.' : 'Belum lolos uji sinyal otomatis. '}{sig.note}</p>
+    </div>
   );
 }
 
@@ -273,25 +291,47 @@ function Equity({ points }: { points: LinePoint[] }) {
   );
 }
 
+function Folds({ folds }: { folds: Fold[] }) {
+  return (
+    <div className="context stats folds">
+      {folds.map((f, i) => (
+        <div key={i}>
+          <span>Periode {i + 1} · {f.n} trade</span>
+          <strong className={f.exp === null ? '' : f.exp > 0 ? 'up' : 'down'}>{r(f.exp)}</strong>
+          <small className="muted">winrate {f.wr ?? '–'}%</small>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function BacktestPanel({ symbol, mode }: { symbol: string; mode: Mode }) {
   const [bt, setBt] = useState<Backtest | null>(null);
+  const [rules, setRules] = useState<Rules>('v2');
   const [state, setState] = useState<'idle' | 'loading' | 'error'>('idle');
   const [err, setErr] = useState('');
 
-  useEffect(() => { setBt(null); setState('idle'); }, [symbol, mode]);
+  useEffect(() => { setBt(null); setState('idle'); }, [symbol, mode, rules]);
 
   const run = () => {
     setState('loading');
-    api.backtest(symbol, mode).then((b) => { setBt(b); setState('idle'); }, (e: Error) => { setErr(e.message); setState('error'); });
+    api.backtest(symbol, mode, rules).then((b) => { setBt(b); setState('idle'); }, (e: Error) => { setErr(e.message); setState('error'); });
   };
 
   return (
     <section className="panel backtest">
       <div className="panel-head">
-        <h2>Backtest <small>{base(symbol)} · {mode} · aturan yang sama dengan setup di atas</small></h2>
+        <h2>Backtest <small>{base(symbol)} · {mode}</small></h2>
+        <div className="controls">
+        <div className="segmented" role="tablist" aria-label="Aturan">
+          {(['v1', 'v2'] as Rules[]).map((x) => (
+            <button key={x} className={x === rules ? 'on' : ''} onClick={() => setRules(x)}>{x === 'v1' ? 'Aturan lama' : 'Aturan v2'}</button>
+          ))}
+        </div>
         <button className="action" onClick={run} disabled={state === 'loading'}>
           {state === 'loading' ? 'Menghitung…' : bt ? 'Ulangi' : 'Jalankan backtest'}
         </button>
+        </div>
       </div>
       {state === 'error' && <p className="error">{err}</p>}
       {!bt && state !== 'error' && (
@@ -305,13 +345,18 @@ function BacktestPanel({ symbol, mode }: { symbol: string; mode: Mode }) {
           <h3>Keluar setengah di TP1, sisa ke TP2</h3>
           <StatGrid s={bt.exit_split} />
           <Equity points={bt.equity} />
-          <h3>Keluar penuh di TP1</h3>
-          <StatGrid s={bt.exit_tp1} />
-          <h3>Checklist ≥ 4 vs &lt; 4</h3>
-          <div className="quality">
-            <div><span className="muted">≥ 4 lolos</span><StatGrid s={bt.by_quality.checks_4plus} /></div>
-            <div><span className="muted">&lt; 4 lolos</span><StatGrid s={bt.by_quality.checks_below_4} /></div>
-          </div>
+          <h3>Konsistensi per periode</h3>
+          <Folds folds={bt.folds} />
+          {bt.exit_tp1 && (<><h3>Keluar penuh di TP1</h3><StatGrid s={bt.exit_tp1} /></>)}
+          {bt.by_quality && (
+            <>
+              <h3>Checklist ≥ 4 vs &lt; 4</h3>
+              <div className="quality">
+                <div><span className="muted">≥ 4 lolos</span><StatGrid s={bt.by_quality.checks_4plus} /></div>
+                <div><span className="muted">&lt; 4 lolos</span><StatGrid s={bt.by_quality.checks_below_4} /></div>
+              </div>
+            </>
+          )}
           <p className="note">Hasil masa lalu tidak menjamin hasil berikutnya. Sampel kecil (di bawah ~30 trade) belum bisa dijadikan pegangan.</p>
         </>
       )}

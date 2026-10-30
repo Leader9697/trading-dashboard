@@ -16,9 +16,8 @@ import sys
 from bisect import bisect_right
 
 from .backtest import FEE_ROUND_TRIP, RULES, WARMUP, WINDOW, _htf_slice
-from .indicators import ema
 from .market import INTERVAL_SECONDS
-from .setup import MODES, build_setup
+from .setup import MODES, btc_regime, build_setup
 
 IS_SHARE = 0.6
 GRID = {
@@ -29,24 +28,7 @@ GRID = {
     "threshold": [25, 40],                    # minimum |bias score|
     "vol": [False, True],                     # skip when ATR% is below its recent median
 }
-AUTO_RULES = {"min_trades": 30, "min_pf": 1.2, "min_coins": 3}
-
-
-def btc_regime(btc_htf: list[dict]) -> tuple[list[int], list[int]]:
-    """+1 when BTC closes above a rising EMA50 on the higher timeframe, -1 when below a falling one."""
-    closes = [c["close"] for c in btc_htf]
-    e50 = ema(closes, 50)
-    out = []
-    for i, c in enumerate(closes):
-        if i < 55 or e50[i] is None or e50[i - 5] is None:
-            out.append(0)
-        elif c > e50[i] and e50[i] > e50[i - 5]:
-            out.append(1)
-        elif c < e50[i] and e50[i] < e50[i - 5]:
-            out.append(-1)
-        else:
-            out.append(0)
-    return [c["time"] for c in btc_htf], out
+AUTO_RULES = {"min_trades": 30, "min_pf": 1.2, "min_coins": 3, "min_positive_folds": 3, "folds": 4}
 
 
 def precompute(symbol: str, mode: str, htf: list[dict], ltf: list[dict], regime: tuple[list[int], list[int]]) -> list:
@@ -169,6 +151,12 @@ def score(rs: list[float]) -> dict:
             "exp": round(sum(rs) / len(rs), 3), "pf": round(wins / loss, 2) if loss else None}
 
 
+def folds(trades: list[dict], t0: int, t1: int, k: int = 4) -> list[dict]:
+    """Stats for k equal time slices: an edge should hold in most of them, not just one."""
+    edges = [t0 + (t1 - t0) * j / k for j in range(k)] + [float("inf")]
+    return [score([t["r"] for t in trades if edges[j] <= t["t"] < edges[j + 1]]) for j in range(k)]
+
+
 def variants() -> list[dict]:
     keys = list(GRID)
     return [dict(zip(keys, combo)) for combo in itertools.product(*(GRID[k] for k in keys))]
@@ -181,27 +169,37 @@ def run(data: dict[str, tuple[list[dict], list[dict]]], mode: str) -> dict:
     rows = []
     for v in variants():
         per = {}
-        all_is, all_oos = [], []
+        all_is, all_oos, pooled = [], [], []
         for s, (_, l) in data.items():
             trades = simulate(pres[s], l, mode, v)
+            pooled += trades
             cut = l[WARMUP]["time"] + IS_SHARE * (l[-1]["time"] - l[WARMUP]["time"])
             r_is = [t["r"] for t in trades if t["t"] < cut]
             r_oos = [t["r"] for t in trades if t["t"] >= cut]
             all_is += r_is
             all_oos += r_oos
             per[s] = {"is": score(r_is), "oos": score(r_oos)}
-        rows.append({"v": v, "is": score(all_is), "oos": score(all_oos), "coins": per})
+        rows.append({"v": v, "is": score(all_is), "oos": score(all_oos), "coins": per, "_trades": pooled})
     ranked = sorted((r for r in rows if r["is"]["n"] >= 60), key=lambda r: r["is"]["exp"], reverse=True)
     best = ranked[0] if ranked else None
+    l0 = data["BTCUSDT"][1]
+    span = (l0[WARMUP]["time"], l0[-1]["time"])
     verdict = None
     if best:
         pos = [s for s, c in best["coins"].items() if (c["oos"]["exp"] or 0) > 0]
+        fs = folds(best["_trades"], *span, AUTO_RULES["folds"])
+        good_folds = sum(1 for f in fs if (f["exp"] or 0) > 0)
         verdict = {
             "passes": bool(best["oos"]["n"] >= AUTO_RULES["min_trades"]
                            and (best["oos"]["pf"] or 0) >= AUTO_RULES["min_pf"]
-                           and len(pos) >= AUTO_RULES["min_coins"]),
+                           and len(pos) >= AUTO_RULES["min_coins"]
+                           and good_folds >= AUTO_RULES["min_positive_folds"]),
             "oos_positive_coins": pos,
+            "folds": fs,
+            "positive_folds": good_folds,
         }
+    for r in rows:
+        r.pop("_trades")
     base = next(r for r in rows if r["v"] == {"entry": "limit", "regime": False, "trend200": False,
                                                "wide_sl": False, "threshold": 25, "vol": False})
     return {

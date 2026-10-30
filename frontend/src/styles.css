@@ -190,3 +190,10 @@ footer { margin-top: 16px; font-size: 12px; color: var(--muted); text-align: cen
   .context.stats { grid-template-columns: repeat(3, 1fr); }
   .quality { grid-template-columns: 1fr; }
 }
+.signal { margin-top: 16px; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.signal h3 { margin-top: 0; }
+.signal p { margin: 6px 0 0; }
+.signal.up { border-color: var(--up); }
+.signal.down { border-color: var(--down); }
+.context.stats.folds { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 860px) { .context.stats.folds { grid-template-columns: repeat(2, 1fr); } }
