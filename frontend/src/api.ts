@@ -1,0 +1,103 @@
+export type Candle = { time: number; open: number; high: number; low: number; close: number; volume: number };
+export type LinePoint = { time: number; value: number };
+export type Mode = 'swing' | 'scalp';
+
+export type CandleResponse = {
+  symbol: string;
+  interval: string;
+  candles: Candle[];
+  indicators: { ema20: LinePoint[]; ema50: LinePoint[]; ema200: LinePoint[] };
+};
+
+export type Levels = {
+  entry: number;
+  entry_zone: [number, number];
+  stop_loss: number;
+  tp1: number;
+  tp2: number;
+  rr_tp1: number;
+  rr_tp2: number;
+  sl_atr: number;
+  hurdle: number | null;
+  invalidation: string;
+};
+
+export type Setup = {
+  symbol: string;
+  mode: Mode;
+  timeframes: { trend: string; entry: string };
+  price: number;
+  as_of: number;
+  direction: 'long' | 'short' | 'wait';
+  plan_side: 'long' | 'short';
+  score: number;
+  rating: string;
+  levels: Levels;
+  risk_pct: number;
+  checklist: { label: string; ok: boolean }[];
+  bull_points: string[];
+  bear_points: string[];
+  derivatives: { funding_pct: number | null; oi_change_24h_pct: number | null; long_short_ratio: number | null };
+  fear_greed: { value: number; label: string } | null;
+};
+
+export type SnapshotCoin = {
+  s: string;
+  px?: number;
+  dir?: 'long' | 'short' | 'wait';
+  score?: number;
+  plan?: ['long' | 'short', [number, number], number, number, number];
+  ok?: number;
+  error?: string;
+};
+
+export type Snapshot = { t: number; mode: Mode; coins: SnapshotCoin[] };
+
+export type DebateCoin = {
+  verdict: string;
+  confidence?: string;
+  bull: string;
+  bear: string;
+  manager: string;
+  plan_note?: string;
+};
+
+export type Debate =
+  | { available: false }
+  | {
+      available: true;
+      updated_at: string;
+      mode?: Mode;
+      market_note?: string;
+      risk_note?: string;
+      coins: Record<string, DebateCoin>;
+    };
+
+export type Config = {
+  watchlist: string[];
+  data_mode: string;
+  modes: Record<Mode, { trend: string; entry: string }>;
+  debate_enabled: boolean;
+};
+
+async function request<T>(path: string): Promise<T> {
+  const res = await fetch(path);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(typeof body.detail === 'string' ? body.detail : `HTTP ${res.status}`);
+  return body as T;
+}
+
+export const api = {
+  config: () => request<Config>('/api/config'),
+  candles: (symbol: string, interval: string) =>
+    request<CandleResponse>(`/api/candles/${encodeURIComponent(symbol)}?interval=${interval}&limit=300`),
+  setup: (symbol: string, mode: Mode) => request<Setup>(`/api/setup/${encodeURIComponent(symbol)}?mode=${mode}`),
+  snapshot: (mode: Mode) => request<Snapshot>(`/api/snapshot?mode=${mode}`),
+  debate: () => request<Debate>('/api/debate'),
+};
+
+export function fmt(n: number | null | undefined): string {
+  if (n === null || n === undefined) return '–';
+  const digits = n >= 100 ? 2 : n >= 1 ? 4 : 6;
+  return n.toLocaleString('en-US', { minimumFractionDigits: Math.min(digits, 2), maximumFractionDigits: digits });
+}
