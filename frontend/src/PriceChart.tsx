@@ -9,7 +9,22 @@ import {
   type IChartApi,
   type Time,
 } from 'lightweight-charts';
-import type { CandleResponse, Signal } from './api';
+import { api, type Candle, type CandleResponse, type Signal } from './api';
+
+const MAX_BARS = 25000; // about 2017 to now on 4h
+
+function ema(values: number[], n: number): (number | null)[] {
+  const out: (number | null)[] = values.map(() => null);
+  if (values.length < n) return out;
+  const k = 2 / (n + 1);
+  let prev = values.slice(0, n).reduce((a, b) => a + b, 0) / n;
+  out[n - 1] = prev;
+  for (let i = n; i < values.length; i++) {
+    prev = values[i] * k + prev * (1 - k);
+    out[i] = prev;
+  }
+  return out;
+}
 
 function css(name: string) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -42,27 +57,39 @@ export function PriceChart({ data, signal }: { data: CandleResponse; signal: Sig
       wickDownColor: down,
       borderVisible: false,
     });
-    candles.setData(data.candles.map((c) => ({ ...c, time: c.time as Time })));
-
     const volume = chart.addSeries(HistogramSeries, { priceScaleId: 'vol', priceFormat: { type: 'volume' } });
     chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
-    volume.setData(
-      data.candles.map((c) => ({
-        time: c.time as Time,
-        value: c.volume,
-        color: c.close >= c.open ? css('--up-soft') : css('--down-soft'),
-      })),
-    );
+    const emas = ([[20, '--ema20'], [50, '--ema50'], [200, '--ema200']] as const).map(([n, color]) => ({
+      n, series: chart.addSeries(LineSeries, { color: css(color), lineWidth: 1, priceLineVisible: false, lastValueVisible: false }),
+    }));
+    const upSoft = css('--up-soft'), downSoft = css('--down-soft');
 
-    const lines = [
-      { points: data.indicators.ema20, color: css('--ema20') },
-      { points: data.indicators.ema50, color: css('--ema50') },
-      { points: data.indicators.ema200, color: css('--ema200') },
-    ];
-    for (const { points, color } of lines) {
-      const s = chart.addSeries(LineSeries, { color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-      s.setData(points.map((p) => ({ ...p, time: p.time as Time })));
-    }
+    let bars: Candle[] = data.candles;
+    const draw = () => {
+      candles.setData(bars.map((c) => ({ ...c, time: c.time as Time })));
+      volume.setData(bars.map((c) => ({ time: c.time as Time, value: c.volume, color: c.close >= c.open ? upSoft : downSoft })));
+      const closes = bars.map((c) => c.close);
+      for (const { n, series } of emas) {
+        series.setData(ema(closes, n).flatMap((v, i) => (v === null ? [] : [{ time: bars[i].time as Time, value: v }])));
+      }
+    };
+    draw();
+
+    // Scrolling near the left edge loads the previous 1000 bars, back to the start of Binance history.
+    let busy = false, done = false, live = true;
+    chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+      if (!range || range.from > 30 || busy || done || bars.length >= MAX_BARS) return;
+      busy = true;
+      api.candles(data.symbol, data.interval, bars[0].time).then((older) => {
+        if (!live) return;
+        const add = older.candles.filter((c) => c.time < bars[0].time);
+        if (add.length === 0) { done = true; return; }
+        const view = chart.timeScale().getVisibleLogicalRange();
+        bars = [...add, ...bars];
+        draw();
+        if (view) chart.timeScale().setVisibleLogicalRange({ from: view.from + add.length, to: view.to + add.length });
+      }, () => { done = true; }).finally(() => { busy = false; });
+    });
 
     if (signal) {
       const marks = [
@@ -76,7 +103,7 @@ export function PriceChart({ data, signal }: { data: CandleResponse; signal: Sig
     }
 
     chart.timeScale().fitContent();
-    return () => chart.remove();
+    return () => { live = false; chart.remove(); };
   }, [data, signal]);
 
   return <div className="chart" ref={host} />;

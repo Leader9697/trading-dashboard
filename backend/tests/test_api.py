@@ -92,3 +92,9 @@ def test_strong_uptrend_gives_long():
 
 def test_demo_klines_deterministic():
     assert demo_klines("BTCUSDT", "4h", 50) == demo_klines("BTCUSDT", "4h", 50)
+
+
+def test_candles_before_end_for_older_history(client):
+    first = client.get("/api/candles/BTCUSDT?interval=4h").json()["candles"]
+    older = client.get(f"/api/candles/BTCUSDT?interval=4h&limit=1000&end={first[0]['time']}").json()["candles"]
+    assert len(older) == 1000 and older[-1]["time"] < first[0]["time"]

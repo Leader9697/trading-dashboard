@@ -147,8 +147,8 @@ async function request<T>(path: string): Promise<T> {
 
 export const api = {
   config: () => request<Config>('/api/config'),
-  candles: (symbol: string, interval: string) =>
-    request<CandleResponse>(`/api/candles/${encodeURIComponent(symbol)}?interval=${interval}&limit=300`),
+  candles: (symbol: string, interval: string, end?: number) =>
+    request<CandleResponse>(`/api/candles/${encodeURIComponent(symbol)}?interval=${interval}&limit=${end ? 1000 : 300}${end ? `&end=${end}` : ''}`),
   setup: (symbol: string, mode: Mode) => request<Setup>(`/api/setup/${encodeURIComponent(symbol)}?mode=${mode}`),
   snapshot: (mode: Mode) => request<Snapshot>(`/api/snapshot?mode=${mode}`),
   debate: () => request<Debate>('/api/debate'),
