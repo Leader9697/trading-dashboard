@@ -12,7 +12,7 @@ from .config import Settings
 
 SPOT_HOSTS = ("https://data-api.binance.vision", "https://api.binance.com")
 FUTURES = "https://fapi.binance.com"
-INTERVAL_SECONDS = {"15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}
+INTERVAL_SECONDS = {"5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "4h": 14400, "1d": 86400, "1w": 604800}
 _TIMEOUT = 15
 
 

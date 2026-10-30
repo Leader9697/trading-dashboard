@@ -35,6 +35,8 @@
   --ema20: #2459d6;
   --ema50: #c77800;
   --ema200: #8a8a86;
+  --bb: #7a5bd1;
+  --rsi: #7a5bd1;
 
   --radius-card: 8px;
   --radius-control: 6px;
@@ -78,6 +80,8 @@
     --ema20: #7aa2ff;
     --ema50: #f0a540;
     --ema200: #8c8c8c;
+    --bb: #b49cff;
+    --rsi: #b49cff;
 
     color-scheme: dark;
   }
@@ -180,12 +184,54 @@ textarea { width: 100%; height: auto; resize: vertical; }
 
 /* chart */
 .price { margin-top: 4px; font-size: 24px; font-weight: 600; }
-.legend { display: flex; gap: 16px; color: var(--muted); font-size: 12px; }
 .swatch { display: inline-block; width: 12px; height: 2px; margin-right: 4px; vertical-align: middle; }
 .swatch.ema20 { background: var(--ema20); }
 .swatch.ema50 { background: var(--ema50); }
 .swatch.ema200 { background: var(--ema200); }
+.swatch.bb, .swatch.rsi { background: var(--bb); }
+.swatch.vol { background: var(--up-soft); height: 8px; }
 .chart { height: 460px; }
+.chart.with-rsi { height: 570px; }
+
+/* chart tools: top bar for timeframe and view, left rail for drawing */
+.chart-wrap { display: flex; flex-direction: column; min-width: 0; }
+.chart-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+.chart-bar button, .tools button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 32px; padding: 0 10px; border: 0; border-radius: var(--radius-control);
+  background: transparent; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer;
+  transition: background var(--dur-micro), color var(--dur-micro);
+}
+.chart-bar button:hover, .tools button:hover:not(:disabled) { background: var(--raised); color: var(--text); }
+.chart-bar button[aria-pressed='true'], .tools button[aria-pressed='true'] { background: var(--raised); color: var(--text); box-shadow: inset 0 0 0 1px var(--border); }
+.chart-bar .icon-only { width: 32px; padding: 0; }
+.seg { display: flex; gap: 2px; padding: 2px; background: var(--raised); border-radius: var(--radius-control); }
+.seg button { height: 28px; padding: 0 8px; font-variant-numeric: tabular-nums; }
+.seg button[aria-pressed='true'] { background: var(--panel); box-shadow: 0 0 0 1px var(--border); }
+.menu { position: relative; }
+.menu-pop {
+  position: absolute; z-index: 5; top: 36px; left: 0; min-width: 190px; padding: 6px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-control);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+}
+.menu-pop label { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 13px; }
+.menu-pop label:hover { background: var(--raised); }
+.menu-pop .swatch { margin: 0; }
+.chart-body { display: flex; gap: 8px; min-width: 0; flex: 1; min-height: 0; }
+.tools { display: flex; flex-direction: column; gap: 2px; flex: none; }
+.tools button { width: 32px; padding: 0; }
+.tools button:disabled { opacity: 0.35; cursor: default; }
+.tools hr { width: 20px; margin: 4px auto; border: 0; border-top: 1px solid var(--border); }
+.chart-area { position: relative; flex: 1; min-width: 0; }
+.ohlc {
+  position: absolute; z-index: 3; top: 4px; left: 8px; display: flex; flex-wrap: wrap; gap: 4px 10px;
+  font-size: 12px; color: var(--muted); pointer-events: none;
+}
+.ohlc b { font-weight: 500; color: var(--text); }
+.chart-wrap:fullscreen, .chart-wrap.is-max { background: var(--panel); padding: 12px; }
+.chart-wrap.is-max { position: fixed; inset: 0; z-index: 50; }
+.chart-wrap:fullscreen .chart, .chart-wrap.is-max .chart { height: 100%; }
+.chart-wrap:fullscreen .chart-area, .chart-wrap.is-max .chart-area { height: 100%; }
 .chart.empty { display: grid; place-items: center; color: var(--muted); background: var(--raised); border-radius: var(--radius-control); }
 
 /* figures split by hairlines: context strip, stats, folds */
@@ -302,8 +348,12 @@ footer { margin-top: 24px; font-size: 12px; color: var(--muted); text-align: cen
   .summary { padding: 4px 16px 12px; }
   .top { align-items: stretch; }
   .controls, .controls form, .controls input { width: 100%; }
-  .chart { height: 320px; }
-  .legend { gap: 12px; }
+  .chart { height: 400px; }
+  .chart.with-rsi { height: 500px; }
+  .chart-bar { gap: 4px; }
+  .chart-bar .tb:not(.icon-only) { padding: 0 8px; }
+  .seg { overflow-x: auto; max-width: 100%; }
+  .tools button { width: 30px; height: 30px; }
   .strip { --cols: 2; }
   .strip > div:nth-child(odd) { border-left: 0; padding-left: 0; }
   .strip.stats { --cols: 2; }
