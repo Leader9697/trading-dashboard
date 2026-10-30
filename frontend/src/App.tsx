@@ -1,10 +1,9 @@
 import { useEffect, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { api, fmt, type Backtest, type CandleResponse, type Config, type Debate, type DebateCoin, type Fold, type Journal, type LinePoint, type Mode, type Rules, type Setup, type Signal, type Snapshot, type Stats } from './api';
+import { api, fmt, type CandleResponse, type Config, type Debate, type DebateCoin, type Journal, type Setup, type Signal, type Snapshot, type Stats } from './api';
 import { PriceChart } from './PriceChart';
 
-const DIR_LABEL = { long: 'Long', short: 'Short', wait: 'Tunggu' } as const;
-const DIR_TONE = { long: 'up', short: 'down', wait: 'neutral' } as const;
 const SIDE_LABEL = { long: 'Long', short: 'Short' } as const;
+const MODE = 'swing';
 
 function wib(unixOrIso: number | string) {
   const d = typeof unixOrIso === 'number' ? new Date(unixOrIso * 1000) : new Date(unixOrIso);
@@ -32,7 +31,6 @@ function Mark() {
 export default function App() {
   const [config, setConfig] = useState<Config | null>(null);
   const [symbol, setSymbol] = useState('BTCUSDT');
-  const [mode, setMode] = useState<Mode>('swing');
   const [query, setQuery] = useState('');
   const [chart, setChart] = useState<CandleResponse | null>(null);
   const [setup, setSetup] = useState<Setup | null>(null);
@@ -50,16 +48,16 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    api.snapshot(mode).then(setSnapshot, () => setSnapshot(null));
-  }, [mode]);
+    api.snapshot(MODE).then(setSnapshot, () => setSnapshot(null));
+  }, []);
 
   useEffect(() => {
     if (!config) return;
     let live = true;
     setLoading(true);
     setError(null);
-    const interval = config.modes[mode].entry;
-    Promise.allSettled([api.candles(symbol, interval), api.setup(symbol, mode)]).then(([c, s]) => {
+    const interval = config.modes[MODE].entry;
+    Promise.allSettled([api.candles(symbol, interval), api.setup(symbol, MODE)]).then(([c, s]) => {
       if (!live) return;
       setChart(c.status === 'fulfilled' ? c.value : null);
       setSetup(s.status === 'fulfilled' ? s.value : null);
@@ -68,7 +66,7 @@ export default function App() {
       setLoading(false);
     });
     return () => { live = false; };
-  }, [symbol, mode, config]);
+  }, [symbol, config]);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -78,7 +76,7 @@ export default function App() {
     setQuery('');
   };
 
-  const tf = config?.modes[mode];
+  const tf = config?.modes[MODE];
   const coinDebate = debate?.available ? debate.coins[symbol] : undefined;
 
   return (
@@ -95,13 +93,6 @@ export default function App() {
           </div>
         </div>
         <div className="controls">
-          <div className="segmented" role="tablist" aria-label="Mode">
-            {(['swing', 'scalp'] as Mode[]).map((m) => (
-              <button key={m} role="tab" aria-selected={m === mode} className={m === mode ? 'on' : ''} onClick={() => setMode(m)}>
-                {m === 'swing' ? 'Swing' : 'Scalp'}<small>{config?.modes[m].trend}/{config?.modes[m].entry}</small>
-              </button>
-            ))}
-          </div>
           <form onSubmit={submit}>
             <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Koin lain, mis. DOGE" aria-label="Cari koin" />
           </form>
@@ -126,7 +117,7 @@ export default function App() {
                 <span><i className="swatch ema200" />EMA 200</span>
               </div>
             </div>
-            {chart ? <PriceChart data={chart} levels={setup?.levels ?? null} /> : <div className="chart empty">{loading ? 'Memuat grafik…' : 'Grafik tidak tersedia untuk koin ini'}</div>}
+            {chart ? <PriceChart data={chart} signal={setup?.signal ?? null} /> : <div className="chart empty">{loading ? 'Memuat grafik…' : 'Grafik tidak tersedia untuk koin ini'}</div>}
             {setup && <Context setup={setup} />}
           </section>
 
@@ -135,12 +126,12 @@ export default function App() {
 
         <aside className="panel setup">
           <div className="panel-head">
-            <h2>Trade setup<small>{mode}</small></h2>
+            <h2>Trade setup<small>swing {tf?.trend}/{tf?.entry}</small></h2>
           </div>
           {setup ? <SetupCard setup={setup} /> : <p className="muted">{loading ? 'Menghitung setup…' : 'Setup tidak tersedia'}</p>}
         </aside>
 
-        <BacktestPanel symbol={symbol} mode={mode} />
+        <ResearchPanel />
         <JournalPanel />
       </main>
 
@@ -159,23 +150,24 @@ function SummaryTable({ snapshot, active, onPick }: { snapshot: Snapshot | null;
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>Koin</th><th className="num">Harga</th><th>Bias</th><th className="num">Zona entry</th><th className="num">Stop loss</th><th className="num">TP1</th><th className="num">TP2</th><th className="num">Checklist</th></tr>
+            <tr><th>Koin</th><th className="num">Harga</th><th>Sinyal</th><th className="num">Entry</th><th className="num">Stop loss</th><th className="num">Take profit</th><th className="num">Syarat</th></tr>
           </thead>
           <tbody>
             {snapshot.coins.map((c) => (
               <tr key={c.s} className={c.s === active ? 'active' : ''} onClick={() => onPick(c.s)} onKeyDown={key(c.s)} tabIndex={0} aria-selected={c.s === active}>
                 <td><strong>{base(c.s)}</strong></td>
-                {c.error || !c.plan ? (
-                  <td colSpan={7} className="muted">{c.error ?? 'Tidak ada data'}</td>
+                {c.error || !c.sig ? (
+                  <td colSpan={6} className="muted">{c.error ?? 'Tidak ada data'}</td>
                 ) : (
                   <>
                     <td className="num">{fmt(c.px)}</td>
-                    <td><span className={`pill ${DIR_TONE[c.dir!]}`}>{DIR_LABEL[c.dir!]}</span><span className="score">{c.score}</span></td>
-                    <td className="num"><span className="stack">{fmt(c.plan[1][0])}</span><span className="stack">{fmt(c.plan[1][1])}</span></td>
-                    <td className="num down">{fmt(c.plan[2])}</td>
-                    <td className="num up">{fmt(c.plan[3])}</td>
-                    <td className="num up">{fmt(c.plan[4])}</td>
-                    <td className="num">{c.ok}<small>/6</small></td>
+                    <td>{c.sig[0]
+                      ? <span className={`pill ${c.sig[1] === 'long' ? 'up' : 'down'}`}>{SIDE_LABEL[c.sig[1]]}</span>
+                      : <span className="pill neutral">Tunggu</span>}</td>
+                    <td className="num">{fmt(c.sig[2])}</td>
+                    <td className="num down">{fmt(c.sig[3])}</td>
+                    <td className="num up">{fmt(c.sig[4])}</td>
+                    <td className="num">{c.sig[5]}<small>/6</small></td>
                   </>
                 )}
               </tr>
@@ -187,63 +179,106 @@ function SummaryTable({ snapshot, active, onPick }: { snapshot: Snapshot | null;
   );
 }
 
-function SetupCard({ setup }: { setup: Setup }) {
-  const lv = setup.levels;
-  const waiting = setup.direction === 'wait';
-  return (
-    <>
-      <div className={`verdict ${DIR_TONE[setup.direction]}`}>
-        <span className={`label ${DIR_TONE[setup.direction]}`}>{DIR_LABEL[setup.direction]}</span>
-        <span className="score-big">{signed(setup.score)}<small>skor bias, {setup.rating}</small></span>
-      </div>
-      {waiting && (
-        <p className="wait-note">Bias belum cukup kuat. Level di bawah adalah rencana sisi {SIDE_LABEL[setup.plan_side].toLowerCase()} jika konfirmasi muncul.</p>
-      )}
-      <dl className="levels">
-        <div className="full"><dt>Zona entry ({SIDE_LABEL[setup.plan_side].toLowerCase()})</dt><dd>{fmt(lv.entry_zone[0])} sampai {fmt(lv.entry_zone[1])}</dd></div>
-        <div><dt>Stop loss</dt><dd className="down">{fmt(lv.stop_loss)}</dd><small>{lv.sl_atr}× ATR</small></div>
-        <div><dt>Risiko per trade</dt><dd>{setup.risk_pct}%</dd><small>dari modal</small></div>
-        <div><dt>TP1</dt><dd className="up">{fmt(lv.tp1)}</dd><small>R:R 1:{lv.rr_tp1}</small></div>
-        <div><dt>TP2</dt><dd className="up">{fmt(lv.tp2)}</dd><small>R:R 1:{lv.rr_tp2}</small></div>
-      </dl>
-      <p className="invalid">Batal jika: {lv.invalidation}{lv.hurdle ? `. Waspadai level ${fmt(lv.hurdle)} sebelum TP1.` : '.'}</p>
-      <h3>Checklist, {setup.checklist.filter((c) => c.ok).length} dari {setup.checklist.length} terpenuhi</h3>
-      <ul className="checklist">
-        {setup.checklist.map((c) => <li key={c.label} className={c.ok ? 'ok' : 'no'}>{c.label}</li>)}
-      </ul>
-      <SignalBox sig={setup.signal} />
-      <p className="source">Tren {setup.timeframes.trend}, entry {setup.timeframes.entry}. Candle terakhir {wib(setup.as_of)}.</p>
-    </>
-  );
-}
-
 const STAGE_LABEL: Record<Signal['stage'], string> = {
-  forward_test: 'Tahap forward test.',
+  forward_test: 'Tahap uji dengan uang kecil.',
   validated: 'Lolos uji sinyal otomatis.',
   rejected: 'Tidak disarankan.',
   research: 'Belum lolos uji sinyal otomatis.',
 };
 
-function SignalBox({ sig }: { sig: Signal }) {
+function stored(key: string, fallback: number) {
+  try {
+    const v = Number(localStorage.getItem(key));
+    return v > 0 ? v : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function store(key: string, v: number) {
+  try { localStorage.setItem(key, String(v)); } catch { /* private window */ }
+}
+
+function NumberField({ label, value, onChange, step, suffix }: { label: string; value: number; onChange: (v: number) => void; step: number; suffix: string }) {
   return (
-    <div className="signal">
-      <h3>Sinyal aturan {sig.rules}</h3>
-      {sig.active ? (
-        <>
-          <p><strong className={sig.side === 'long' ? 'up' : 'down'}>{SIDE_LABEL[sig.side]} sekarang</strong> di sekitar {fmt(sig.entry)}</p>
-          <div className="signal-levels">
-            <span>Stop loss</span><span>TP1</span><span>TP2</span>
-            <strong className="down">{fmt(sig.stop_loss)}</strong><strong className="up">{fmt(sig.tp1)}</strong><strong className="up">{fmt(sig.tp2)}</strong>
-          </div>
-        </>
-      ) : (
-        <p className="muted">Belum ada sinyal: syarat di bawah belum terpenuhi semua.</p>
+    <label className="field">
+      <span>{label}</span>
+      <span className="input-suffix">
+        <input type="number" inputMode="decimal" min={step} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} />
+        <small>{suffix}</small>
+      </span>
+    </label>
+  );
+}
+
+function usd(n: number) {
+  return `$${n < 10 ? n.toFixed(2) : n.toFixed(1)}`;
+}
+
+function Sizing({ sig }: { sig: Signal }) {
+  const [equity, setEquity] = useState(() => stored('equity', 55));
+  const [risk, setRisk] = useState(() => stored('risk_pct', 1));
+  useEffect(() => store('equity', equity), [equity]);
+  useEffect(() => store('risk_pct', risk), [risk]);
+  if (!sig.sl_pct || equity <= 0 || risk <= 0) return null;
+
+  const riskUsd = equity * risk / 100;
+  const notional = riskUsd / (sig.sl_pct / 100);
+  const maxLev = Math.max(1, Math.floor(100 / (2 * sig.sl_pct)));
+  const lev = Math.min(maxLev, Math.max(1, Math.ceil(notional / (0.3 * equity))));
+  const margin = notional / lev;
+  const tooSmall = notional < sig.min_notional;
+  const needRisk = (sig.min_notional * sig.sl_pct) / equity;
+
+  return (
+    <div className="sizing">
+      <h3>Ukuran posisi</h3>
+      <div className="fields">
+        <NumberField label="Modal" value={equity} onChange={setEquity} step={1} suffix="USDT" />
+        <NumberField label="Risiko per trade" value={risk} onChange={setRisk} step={0.5} suffix="%" />
+      </div>
+      <dl className="levels">
+        <div><dt>Kalau kena SL, rugi</dt><dd className="down">{usd(riskUsd)}</dd></div>
+        <div><dt>Kalau kena TP, untung</dt><dd className="up">{usd(riskUsd * sig.rr)}</dd></div>
+        <div><dt>Nilai posisi</dt><dd>{usd(notional)}</dd><small>{fmt(notional / sig.entry)} {'koin'}</small></div>
+        <div><dt>Leverage</dt><dd>{lev}x isolated</dd><small>margin {usd(margin)}, maks aman {maxLev}x</small></div>
+      </dl>
+      {tooSmall && (
+        <p className="warn">
+          Posisi {usd(notional)} di bawah minimal order Binance ({sig.min_notional} USDT). Butuh risiko {needRisk.toFixed(1)}% dari modal.
+          {needRisk > 2 ? ' Itu terlalu besar, lewati koin ini.' : ' Naikkan risiko sedikit atau lewati.'}
+        </p>
       )}
+    </div>
+  );
+}
+
+function SetupCard({ setup }: { setup: Setup }) {
+  const sig = setup.signal;
+  const passed = sig.checks.filter((c) => c.ok).length;
+  const tone = sig.active ? (sig.side === 'long' ? 'up' : 'down') : 'neutral';
+  return (
+    <>
+      <div className={`verdict ${tone}`}>
+        <span className={`label ${tone}`}>{sig.active ? `${SIDE_LABEL[sig.side]} sekarang` : 'Tunggu'}</span>
+        <span className="score-big">{passed}/{sig.checks.length}<small>syarat terpenuhi</small></span>
+      </div>
+      {!sig.active && (
+        <p className="wait-note">Belum ada sinyal, jangan entry. Angka di bawah hanya gambaran kalau sinyal {SIDE_LABEL[sig.side].toLowerCase()} muncul di harga sekarang.</p>
+      )}
+      <dl className="levels">
+        <div className="full"><dt>Entry ({SIDE_LABEL[sig.side].toLowerCase()}, order market)</dt><dd>{fmt(sig.entry)}</dd></div>
+        <div><dt>Stop loss</dt><dd className="down">{fmt(sig.stop_loss)}</dd><small>{sig.sl_pct ?? '–'}% dari entry</small></div>
+        <div><dt>Take profit</dt><dd className="up">{fmt(sig.take_profit)}</dd><small>R:R 1:{sig.rr}, tutup semua di sini</small></div>
+      </dl>
+      <Sizing sig={sig} />
+      <h3>Syarat sinyal</h3>
       <ul className="checklist">
         {sig.checks.map((c) => <li key={c.label} className={c.ok ? 'ok' : 'no'}>{c.label}</li>)}
       </ul>
       <p className="note">{STAGE_LABEL[sig.stage]} {sig.note}</p>
-    </div>
+      <p className="source">Skor bias teknikal {signed(setup.score)} ({setup.rating}). Tren {setup.timeframes.trend}, entry {setup.timeframes.entry}. Candle terakhir {wib(setup.as_of)}.</p>
+    </>
   );
 }
 
@@ -327,89 +362,22 @@ function StatGrid({ s }: { s: Stats }) {
   );
 }
 
-function Equity({ points }: { points: LinePoint[] }) {
-  if (points.length < 2) return null;
-  const vals = [0, ...points.map((p) => p.value)];
-  const lo = Math.min(...vals), hi = Math.max(...vals), span = hi - lo || 1;
-  const d = vals.map((v, i) => `${(i / (vals.length - 1)) * 100},${40 - ((v - lo) / span) * 40}`).join(' ');
-  const zero = 40 - ((0 - lo) / span) * 40;
-  return (
-    <svg className="equity" viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-label="Kurva ekuitas dalam R">
-      <line x1="0" x2="100" y1={zero} y2={zero} className="zero" />
-      <polyline points={d} className={vals[vals.length - 1] >= 0 ? 'pos' : 'neg'} />
-    </svg>
-  );
-}
+const YEARS: [string, number, number][] = [['2022', 221, 0.006], ['2023', 309, 0.055], ['2024', 258, 0.223], ['2025', 232, 0.158], ['2026', 199, 0.204]];
 
-function Folds({ folds }: { folds: Fold[] }) {
-  return (
-    <div className="strip folds">
-      {folds.map((f, i) => (
-        <div key={i}>
-          <span>Periode {i + 1}, {f.n} trade</span>
-          <strong className={tone(f.exp)}>{r(f.exp)}</strong>
-          <small>winrate {f.wr ?? '–'}%</small>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function BacktestPanel({ symbol, mode }: { symbol: string; mode: Mode }) {
-  const [bt, setBt] = useState<Backtest | null>(null);
-  const [rules, setRules] = useState<Rules>('v2');
-  const [state, setState] = useState<'idle' | 'loading' | 'error'>('idle');
-  const [err, setErr] = useState('');
-
-  useEffect(() => { setBt(null); setState('idle'); }, [symbol, mode, rules]);
-
-  const run = () => {
-    setState('loading');
-    api.backtest(symbol, mode, rules).then((b) => { setBt(b); setState('idle'); }, (e: Error) => { setErr(e.message); setState('error'); });
-  };
-
+function ResearchPanel() {
   return (
     <section className="panel backtest wide-panel">
       <div className="panel-head">
-        <h2>Backtest<small>{base(symbol)}, {mode}</small></h2>
-        <div className="controls">
-          <div className="segmented" role="tablist" aria-label="Aturan">
-            {(['v1', 'v2'] as Rules[]).map((x) => (
-              <button key={x} role="tab" aria-selected={x === rules} className={x === rules ? 'on' : ''} onClick={() => setRules(x)}>{x === 'v1' ? 'Aturan lama' : 'Aturan v2'}</button>
-            ))}
-          </div>
-          <button className="action" onClick={run} disabled={state === 'loading'}>
-            {state === 'loading' ? 'Menghitung…' : bt ? 'Ulangi' : 'Jalankan backtest'}
-          </button>
-        </div>
+        <h2>Hasil uji aturan sinyal<small>BTC, ETH, SOL, BNB, XRP, 4h, 2022 sampai Okt 2026</small></h2>
       </div>
-      {state === 'error' && <p className="error">Backtest gagal: {err}. Coba jalankan lagi.</p>}
-      {!bt && state !== 'error' && (
-        <p className="muted">Uji walk-forward: tiap candle hanya melihat data sebelumnya, order limit di entry, SL/TP dicek bar per bar, biaya 0,08% per trade sudah dipotong. Funding, OI dan Fear &amp; Greed tidak punya histori gratis, jadi tidak ikut dihitung.</p>
-      )}
-      {bt && (
-        <>
-          <p className="source">
-            {bt.period.from ? `${wib(bt.period.from)} sampai ${wib(bt.period.to)}` : 'Periode tidak diketahui'}. {bt.signals} sinyal, {bt.missed} tidak terisi.
-          </p>
-          <h3>Keluar setengah di TP1, sisa ke TP2</h3>
-          <StatGrid s={bt.exit_split} />
-          <Equity points={bt.equity} />
-          <h3>Konsistensi per periode</h3>
-          <Folds folds={bt.folds} />
-          {bt.exit_tp1 && (<><h3>Keluar penuh di TP1</h3><StatGrid s={bt.exit_tp1} /></>)}
-          {bt.by_quality && (
-            <>
-              <h3>Checklist minimal 4 lolos dibanding kurang dari 4</h3>
-              <div className="quality">
-                <div><span className="muted">Minimal 4 lolos</span><StatGrid s={bt.by_quality.checks_4plus} /></div>
-                <div><span className="muted">Kurang dari 4 lolos</span><StatGrid s={bt.by_quality.checks_below_4} /></div>
-              </div>
-            </>
-          )}
-          <p className="note">Hasil masa lalu tidak menjamin hasil berikutnya. Sampel kecil (di bawah ~30 trade) belum bisa dijadikan pegangan.</p>
-        </>
-      )}
+      <StatGrid s={{ trades: 1219, winrate: 42, expectancy_r: 0.126, total_r: 153.6, profit_factor: 1.26, max_drawdown_r: 63.6 }} />
+      <h3>Per tahun (rata-rata per trade)</h3>
+      <div className="strip folds">
+        {YEARS.map(([y, n, e]) => (
+          <div key={y}><span>{y}, {n} trade</span><strong className={tone(e)}>{r(e)}</strong></div>
+        ))}
+      </div>
+      <p className="note">Entry market, satu TP di 2,5R, biaya 0,08% sudah dipotong. Kalah beruntun terpanjang 23 kali, jadi risiko per trade harus kecil. Uji harga saja 2017–2026 (10 koin, 4260 trade, tanpa data OI): +0,06R per trade, rugi di tahun bear/sideways (2018, 2022, 2023). Hasil masa lalu tidak menjamin hasil berikutnya.</p>
     </section>
   );
 }

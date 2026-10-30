@@ -52,3 +52,40 @@ Varian terbaik in-sample adalah **v2 ditambah tiga syarat**: OI naik dalam 24 ja
 | ↳ 2022 / 2023 / awal 2024 | +0,03 / −0,05 / +0,05 | 0,00 / −0,09 / +0,35 | +0,03 / +0,06 / +0,49 |
 
 Kesimpulan: v3 adalah aturan pertama yang bertahan di data yang tidak pernah dipakai untuk memilihnya, termasuk bear market 2022 dan pasar datar 2023. Edge-nya tetap tipis, sekitar +0,03 s/d +0,2R per trade dengan winrate 40–47%, dan biaya serta slippage nyata bisa menggerusnya. Karena itu statusnya **forward test**: jalankan dengan risiko kecil atau paper trading selama 4–8 minggu, lalu bandingkan hasilnya dengan angka di atas.
+
+## Single take profit (2022 – Oct 2026, v3, 5 coins)
+
+Same v3 entries, exit variants compared. Fees included.
+
+| Exit | Trades | Winrate | Avg R | PF | Blind 2022–24/03 | Max DD (R) | Longest losing run |
+|---|---|---|---|---|---|---|---|
+| Half 2R, rest 3R | 1193 | 43.3% | +0.110 | 1.23 | +0.090 | 56.3 | 22 |
+| TP 1.5R | 1327 | 45.8% | +0.077 | 1.17 | +0.023 | 62.6 | 15 |
+| TP 2R | 1244 | 43.7% | +0.112 | 1.24 | +0.071 | 59.0 | 23 |
+| **TP 2.5R** | 1219 | 42.0% | +0.126 | 1.26 | +0.087 | 63.6 | 23 |
+| TP 3R | 1187 | 41.3% | +0.128 | 1.26 | +0.112 | 61.1 | 22 |
+
+The dashboard now uses one TP at 2.5R. The stop is at a median of 2.9% from entry (p80 4.95%, p95 8.3%). By year, the average R per trade was +0.006 (2022), +0.055 (2023), +0.223 (2024), +0.158 (2025) and +0.204 (2026). The edge is thin in bear and sideways years.
+
+Sizing for a small account: position = equity × risk% / SL%. Leverage only reduces the margin you post, not the risk. Keep leverage below 1/(2 × SL%) on isolated margin so that liquidation sits beyond the stop. Binance minimum order values (BTC 100 USDT, ETH 20 USDT) make BTC untradeable at 1% risk on a $55 account.
+
+## Price only, 2017 – Sep 2026 (10 coins, Binance spot archive)
+
+Rules v2, without the OI, crowd and taker filters, because that data doesn't exist before late 2021. Average R per trade by year:
+
+| Year | Avg R per trade |
+|---|---|
+| 2017 | +0.37 (36 trades) |
+| 2018 | −0.04 |
+| 2019 | +0.07 |
+| 2020 | +0.06 |
+| 2021 | +0.23 |
+| 2022 | −0.03 |
+| 2023 | −0.09 |
+| 2024 | +0.09 |
+| 2025 | +0.09 |
+| 2026 | +0.12 |
+
+Overall: 4260 trades, winrate 42%, +0.06R per trade. On the years v2 was never fitted on (2017 – Feb 2024): +0.04R with PF 1.08. The old v1 rules made +0.02R and lost in 5 of the 10 years.
+
+Conclusion: the system makes money in trending markets and loses in bear and sideways years. A losing year is normal for it.
