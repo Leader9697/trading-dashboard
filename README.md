@@ -1,77 +1,63 @@
-# Dashboard Keputusan Trading
+# Crypto Trade Setup Dashboard
 
-Satu layar untuk memutuskan beli, tahan, atau jual: grafik harga, sinyal, level stop loss dan target, alasan, risiko, dan panel riset mendalam.
+Satu layar untuk keputusan trading crypto: tabel ringkasan watchlist, grafik dengan garis entry/SL/TP, kartu trade setup, konteks derivatif, dan ringkasan debat AI (bull vs bear vs manajer risiko) yang diperbarui berkala.
 
-Dashboard ini tidak menyalin kode repo lain. Ia memanggil masing-masing sebagai layanan terpisah lewat satu gateway:
+## Dari mana idenya
 
-| Komponen | Peran | Status |
-| --- | --- | --- |
-| [daily_stock_analysis](https://github.com/ZhuLinsen/daily_stock_analysis) | Data harga + laporan analisis LLM (skor, aksi, stop loss, target, risiko) | Tersambung via `DSA_URL` |
-| [lightweight-charts](https://github.com/tradingview/lightweight-charts) | Grafik candlestick, volume, MA20/MA50, penanda sinyal | Terpasang |
-| [dexter](https://github.com/virattt/dexter) | Riset fundamental on-demand | Endpoint siap, bridge menyusul (Tahap 3) |
-| [AI-Trader](https://github.com/HKUDS/AI-Trader) | Opini kedua + paper trading | Tahap 4 |
+| Sumber | Yang diambil |
+| --- | --- |
+| [daily_stock_analysis](https://github.com/ZhuLinsen/daily_stock_analysis) | Format "decision dashboard": kesimpulan, skor, zona entry, stop loss, target, checklist |
+| [AI-Trader](https://github.com/HKUDS/AI-Trader) / TradingAgents | Debat multi-agen: bull, bear, manajer riset, manajer risiko |
+| [dexter](https://github.com/virattt/dexter) | Pola rencanakan, jalankan, validasi: angka dihitung kode, AI hanya berdebat di atas fakta itu |
+| [lightweight-charts](https://github.com/tradingview/lightweight-charts) | Grafik candlestick, EMA, dan garis harga setup |
+| [FinceptTerminal](https://github.com/Fincept-Corporation/FinceptTerminal) | Tidak dipakai di kode (AGPL); cocok sebagai terminal riset terpisah |
+
+## Cara kerja
 
 ```
-frontend (React + Vite + lightweight-charts)
-        │  /api/*
-backend gateway (FastAPI)
-   ├─ harga:   daily_stock_analysis | yfinance | demo
-   ├─ sinyal:  laporan daily_stock_analysis | aturan MA/RSI bawaan
-   └─ riset:   dexter bridge (DEXTER_URL)
+Binance (spot klines, funding, OI, long/short) + Fear & Greed
+        │
+backend FastAPI ── /api/setup      setup per koin (deterministik, tanpa LLM)
+        │       ── /api/snapshot   ringkasan ~1 KB semua koin, input debat
+        │       ── /api/debate     hasil debat dari Vercel Edge Config
+        │
+frontend React + lightweight-charts
 ```
 
-## Menjalankan
+Debat AI dijalankan Claude lewat tugas terjadwal: membaca `/api/snapshot`, menulis debat singkat, lalu menyimpannya ke Edge Config (key `debate`). Dashboard langsung menampilkannya tanpa redeploy. Karena input sudah diringkas jadi angka, satu putaran debat untuk 5 koin hanya butuh sedikit token.
 
-Butuh Python 3.11+ dan Node 20+.
+### Aturan setup
+
+- **Swing**: tren dari 1D, entry di 4H, risiko 1% per trade. **Scalp**: tren 1H, entry 15m, risiko 0,5%.
+- **Skor bias** (-100 sampai 100): susunan EMA20/50/200 di dua timeframe (bobot 60/40), RSI, histogram MACD, funding, rasio long/short, Fear & Greed. Long jika ≥ 25, short jika ≤ -25, selain itu tunggu.
+- **Entry**: pullback ke support/resisten swing terdekat atau EMA20 di timeframe entry.
+- **Stop loss**: di balik struktur terdekat, dibatasi 0,8 sampai 2,5× ATR14.
+- **Target**: TP1 = 2R, TP2 = 3R. Level struktur di antara entry dan TP1 ditandai sebagai hambatan.
+- **Checklist**: enam syarat. Jika kurang dari 4 terpenuhi, risiko per trade dipotong setengah.
+
+## Menjalankan lokal
 
 ```bash
-# 1. Backend
-cd backend
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env            # isi seperlunya
-uvicorn app.main:app --port 8100 --env-file .env
-
-# 2. Frontend (terminal lain)
-cd frontend
-npm install
-npm run dev                     # buka http://localhost:5173
+cd frontend && npm install && npm run build
+cd ../backend && pip install -r requirements.txt
+DATA_MODE=demo uvicorn app.main:app --port 8100   # tanpa DATA_MODE = data live Binance
 ```
 
-Atau satu port saja: `npm run build` di `frontend/`, lalu backend otomatis menyajikan `frontend/dist` di http://localhost:8100.
+Buka http://localhost:8100. Untuk mengembangkan frontend: `npm run dev` di `frontend/` (proxy ke :8100).
 
 ## Deploy ke Vercel
 
-1. Buka [vercel.com/new](https://vercel.com/new), pilih repo `trading-dashboard`, lalu klik Deploy. Pengaturan build sudah ada di `vercel.json`, jadi tidak perlu diubah.
-2. Opsional, di Settings → Environment Variables: `WATCHLIST`, `DATA_MODE`, `DSA_URL`, `DEXTER_URL` (lihat `backend/.env.example`), lalu Redeploy.
+Import repo di [vercel.com/new](https://vercel.com/new); pengaturan build ada di `vercel.json`. Fungsi Python berjalan di region `sin1` (Singapura) karena Binance menolak IP Amerika Serikat. Untuk panel debat, sambungkan store Edge Config ke project supaya variabel `EDGE_CONFIG` terisi.
 
-Frontend disajikan sebagai file statis, dan `/api/*` dijalankan oleh fungsi Python `api/index.py`. Tanpa variabel apa pun, harga diambil dari Yahoo Finance. Kalau Yahoo menolak IP Vercel, set `DATA_MODE=demo` untuk sementara. `DSA_URL` harus berupa alamat publik (bukan `localhost`) supaya bisa dijangkau dari Vercel.
-
-## Tiga mode data
-
-1. **Demo** (`DATA_MODE=demo`): data sintetis, tanpa internet dan tanpa API key. Cocok untuk mencoba tampilan.
-2. **yfinance** (default jika `DSA_URL` kosong): harga asli dari Yahoo Finance, termasuk saham BEI dengan akhiran `.JK`. Sinyal memakai aturan teknikal bawaan (MA20/MA50 + RSI14), bukan LLM.
-3. **daily_stock_analysis** (`DSA_URL=http://localhost:8000`, alamat server DSA): harga dan sinyal diambil dari laporan analisis LLM terbaru.
-
-Untuk mode 3, jalankan daily_stock_analysis secara terpisah:
-
-```bash
-git clone https://github.com/ZhuLinsen/daily_stock_analysis && cd daily_stock_analysis
-pip install -r requirements.txt && cp .env.example .env   # isi kunci LLM + STOCK_LIST
-python main.py --stocks BBCA.JK,AAPL        # buat laporan dulu
-python main.py --serve-only                 # API DSA di :8000, gateway ini di :8100
-```
-
-Catatan: jika autentikasi admin DSA diaktifkan, endpoint `/api/v1/*` butuh cookie sesi; prototipe ini mengasumsikan autentikasi mati (default). Dukungan ticker `.JK` di DSA belum diuji.
-
-## API gateway
+## API
 
 | Endpoint | Isi |
 | --- | --- |
-| `GET /api/config` | Watchlist dan sumber data aktif |
-| `GET /api/candles/{ticker}?days=180` | OHLCV + garis MA20/MA50 |
-| `GET /api/decision/{ticker}` | Aksi, skor, tren, alasan, risiko, level, penanda |
-| `POST /api/research` | `{symbol, question}` diteruskan ke dexter |
+| `GET /api/config` | Watchlist, mode, status debat |
+| `GET /api/candles/{pair}?interval=4h` | OHLCV + EMA20/50/200 (interval 15m, 1h, 4h, 1d) |
+| `GET /api/setup/{pair}?mode=swing` | Setup lengkap: arah, skor, rating, level, checklist, poin bull/bear |
+| `GET /api/snapshot?mode=swing` | Ringkasan padat semua koin |
+| `GET /api/debate` | Debat AI terbaru |
 
 ## Tes
 
@@ -79,8 +65,6 @@ Catatan: jika autentikasi admin DSA diaktifkan, endpoint `/api/v1/*` butuh cooki
 cd backend && pytest
 ```
 
-## Lisensi pihak ketiga
+Grafik memakai TradingView Lightweight Charts™ (Apache-2.0); logo atribusinya sengaja dibiarkan aktif.
 
-Grafik memakai TradingView Lightweight Charts™ (Apache-2.0). Logo atribusi TradingView di grafik sengaja dibiarkan aktif sesuai syarat NOTICE-nya.
-
-Alat bantu riset, bukan saran investasi.
+Analisis riset, bukan saran keuangan.
