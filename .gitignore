@@ -7,3 +7,4 @@ __pycache__/
 .venv/
 *.tsbuildinfo
 .hallmark/
+collector/data/
