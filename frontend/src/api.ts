@@ -45,6 +45,9 @@ export type Setup = {
 export type Signal = {
   active: boolean;
   side: 'long' | 'short';
+  order?: 'limit' | 'market';
+  valid_bars?: number;
+  valid_hours?: number;
   entry: number;
   stop_loss: number;
   take_profit: number;

@@ -62,8 +62,8 @@ def message(symbol: str, sig: dict, settings: Settings) -> str:
     coin = symbol.removesuffix("USDT")
     side = "LONG" if sig["side"] == "long" else "SHORT"
     lines = [
-        f"{'🟢' if side == 'LONG' else '🔴'} {side} {coin} sekarang (order market)",
-        f"Entry ± {sig['entry']}",
+        f"{'🟢' if side == 'LONG' else '🔴'} {side} {coin}: pasang order LIMIT",
+        f"Entry limit {sig['entry']} (berlaku {sig.get('valid_hours', 16)} jam, batalkan kalau tidak terisi)",
         f"Stop loss {sig['stop_loss']} ({sig['sl_pct']}%)",
         f"Take profit {sig['take_profit']} (RR 1:{sig['rr']}, tutup semua)",
     ]
@@ -73,7 +73,6 @@ def message(symbol: str, sig: dict, settings: Settings) -> str:
                      f"leverage {z['lev']}x isolated, rugi ${z['risk']:.2f} kalau kena SL")
         if z["too_small"]:
             lines.append(f"Posisi di bawah minimal order Binance ({sig['min_notional']} USDT): lewati.")
-    lines.append("Kalau harga sudah jauh dari entry, lewati.")
     lines.append(DASHBOARD)
     return "\n".join(lines)
 

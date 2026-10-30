@@ -267,14 +267,14 @@ function SetupCard({ setup }: { setup: Setup }) {
   return (
     <>
       <div className={`verdict ${tone}`}>
-        <span className={`label ${tone}`}>{sig.active ? `${SIDE_LABEL[sig.side]} sekarang` : 'Tunggu'}</span>
+        <span className={`label ${tone}`}>{sig.active ? `Pasang limit ${SIDE_LABEL[sig.side].toLowerCase()}` : 'Tunggu'}</span>
         <span className="score-big">{passed}/{sig.checks.length}<small>syarat terpenuhi</small></span>
       </div>
       {!sig.active && (
         <p className="wait-note">Belum ada sinyal, jangan entry. Angka di bawah hanya gambaran kalau sinyal {SIDE_LABEL[sig.side].toLowerCase()} muncul di harga sekarang.</p>
       )}
       <dl className="levels">
-        <div className="full"><dt>Entry ({SIDE_LABEL[sig.side].toLowerCase()}, order market)</dt><dd>{fmt(sig.entry)}</dd></div>
+        <div className="full"><dt>Entry ({SIDE_LABEL[sig.side].toLowerCase()}, order limit)</dt><dd>{fmt(sig.entry)}</dd><small>Berlaku {sig.valid_hours ?? 16} jam. Kalau tidak terisi, batalkan dan jangan kejar harga.</small></div>
         <div><dt>Stop loss</dt><dd className="down">{fmt(sig.stop_loss)}</dd><small>{sig.sl_pct ?? '–'}% dari entry</small></div>
         <div><dt>Take profit</dt><dd className="up">{fmt(sig.take_profit)}</dd><small>R:R 1:{sig.rr}, tutup semua di sini</small></div>
       </dl>
@@ -369,7 +369,7 @@ function StatGrid({ s }: { s: Stats }) {
   );
 }
 
-const YEARS: [string, number, number][] = [['2022', 221, 0.006], ['2023', 309, 0.055], ['2024', 258, 0.223], ['2025', 232, 0.158], ['2026', 199, 0.204]];
+const YEARS: [string, number, number][] = [['2022', 80, 0.159], ['2023', 147, 0.147], ['2024', 130, 0.235], ['2025', 124, 0.198], ['2026', 96, 0.212]];
 
 function ResearchPanel() {
   return (
@@ -377,14 +377,14 @@ function ResearchPanel() {
       <div className="panel-head">
         <h2>Hasil uji aturan sinyal<small>BTC, ETH, SOL, BNB, XRP, 4h, 2022 sampai Okt 2026</small></h2>
       </div>
-      <StatGrid s={{ trades: 1219, winrate: 42, expectancy_r: 0.126, total_r: 153.6, profit_factor: 1.26, max_drawdown_r: 63.6 }} />
+      <StatGrid s={{ trades: 577, winrate: 39.5, expectancy_r: 0.19, total_r: 109.9, profit_factor: 1.32, max_drawdown_r: 32.1 }} />
       <h3>Per tahun (rata-rata per trade)</h3>
       <div className="strip folds">
         {YEARS.map(([y, n, e]) => (
           <div key={y}><span>{y}, {n} trade</span><strong className={tone(e)}>{r(e)}</strong></div>
         ))}
       </div>
-      <p className="note">Entry market, satu TP di 2,5R, biaya 0,08% sudah dipotong. Kalah beruntun terpanjang 23 kali, jadi risiko per trade harus kecil. Uji harga saja 2017–2026 (10 koin, 4260 trade, tanpa data OI): +0,06R per trade, rugi di tahun bear/sideways (2018, 2022, 2023). Hasil masa lalu tidak menjamin hasil berikutnya.</p>
+      <p className="note">Entry limit 0,25 ATR lebih baik dari harga sinyal (berlaku 4 candle, dilewati kalau tidak terisi), SL 2 ATR, satu TP di 3R, satu posisi per koin, biaya 0,08% sudah dipotong. Dibanding entry market + SL struktur + TP 2,5R (571 trade, +0,12R, total +68,5R): jumlah trade hampir sama, hasil per trade naik. Winrate di bawah 40%, jadi kalah beruntun panjang itu normal dan risiko per trade harus kecil. Uji harga saja 2017–2026 (10 koin, 4260 trade, tanpa data OI): +0,06R per trade, rugi di tahun bear/sideways (2018, 2022, 2023). Hasil masa lalu tidak menjamin hasil berikutnya.</p>
     </section>
   );
 }
