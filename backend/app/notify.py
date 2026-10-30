@@ -102,7 +102,8 @@ def run(settings: Settings, setup_for, now: float | None = None, test: bool = Fa
             return {"ok": True, "test": True, "sample": False}
         _call(settings, "sendMessage", chat_id=chat, disable_web_page_preview=True,
               text="CONTOH, BUKAN SINYAL. Jangan entry.\n\n" + message(symbol, sig, settings))
-        return {"ok": True, "test": True, "sample": True}
+        # Telegram keeps updates for 24h only, so the chat id should be saved as TELEGRAM_CHAT_ID
+        return {"ok": True, "test": True, "sample": True, "chat_id": chat}
     step = INTERVAL_SECONDS[MODES["swing"]["ltf"]]
     closed = int(now // step * step)
     if now - closed > WINDOW:

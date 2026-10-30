@@ -46,4 +46,4 @@ def test_test_mode_sends_hello_and_sample(monkeypatch):
     monkeypatch.setattr(notify, "_call", lambda s, method, **p: calls.append(p) or {})
     notify._last_test[0] = 0
     out = notify.run(_settings(), lambda s: {"signal": {**SIG, "active": False}}, now=10**9, test=True)
-    assert out["sample"] is True and len(calls) == 2 and calls[1]["text"].startswith("CONTOH, BUKAN SINYAL")
+    assert out["sample"] is True and out["chat_id"] == "42" and len(calls) == 2 and calls[1]["text"].startswith("CONTOH, BUKAN SINYAL")
