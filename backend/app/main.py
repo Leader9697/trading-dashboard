@@ -94,7 +94,7 @@ def candles(
     try:
         rows = _cached(("k", settings.data_mode, symbol, interval, limit, end),
                        lambda: get_klines(settings, symbol, interval, limit, end),
-                       ttl=86400 if end else None)
+                       ttl=86400 if end else CACHE_SECONDS)
     except MarketError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     closes = [c["close"] for c in rows]
