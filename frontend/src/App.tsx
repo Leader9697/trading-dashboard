@@ -38,11 +38,13 @@ export default function App() {
   const [debate, setDebate] = useState<Debate | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [tfChoice, setTfChoice] = useState<string | null>(null);
 
   useEffect(() => {
     api.config().then((c) => {
       setConfig(c);
       setSymbol(c.watchlist[0] ?? 'BTCUSDT');
+      setTfChoice(c.modes[MODE].entry);
     }, (e: Error) => setError(e.message));
     api.debate().then(setDebate, () => setDebate({ available: false }));
   }, []);
@@ -54,19 +56,26 @@ export default function App() {
   useEffect(() => {
     if (!config) return;
     let live = true;
-    setLoading(true);
     setError(null);
-    const interval = config.modes[MODE].entry;
-    Promise.allSettled([api.candles(symbol, interval), api.setup(symbol, MODE)]).then(([c, s]) => {
+    api.setup(symbol, MODE).then((s) => { if (live) setSetup(s); }, (e: Error) => {
       if (!live) return;
-      setChart(c.status === 'fulfilled' ? c.value : null);
-      setSetup(s.status === 'fulfilled' ? s.value : null);
-      const failed = [c, s].find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined;
-      setError(failed ? String(failed.reason?.message ?? failed.reason) : null);
-      setLoading(false);
+      setSetup(null);
+      setError(e.message);
     });
     return () => { live = false; };
   }, [symbol, config]);
+
+  useEffect(() => {
+    if (!tfChoice) return;
+    let live = true;
+    setLoading(true);
+    api.candles(symbol, tfChoice).then((c) => { if (live) setChart(c); }, (e: Error) => {
+      if (!live) return;
+      setChart(null);
+      setError(e.message);
+    }).finally(() => { if (live) setLoading(false); });
+    return () => { live = false; };
+  }, [symbol, tfChoice]);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -108,16 +117,14 @@ export default function App() {
           <section className="panel chart-panel">
             <div className="panel-head">
               <div>
-                <h2>{base(symbol)}<small>/USDT, {tf?.entry}</small></h2>
+                <h2>{base(symbol)}<small>/USDT, {tfChoice}</small></h2>
                 {setup && <p className="price">{fmt(setup.price)}</p>}
               </div>
-              <div className="legend">
-                <span><i className="swatch ema20" />EMA 20</span>
-                <span><i className="swatch ema50" />EMA 50</span>
-                <span><i className="swatch ema200" />EMA 200</span>
-              </div>
+              {tfChoice && tfChoice !== tf?.entry && <p className="note">Sinyal dihitung di {tf?.entry}. Garis entry, SL dan TP tetap sama di timeframe ini.</p>}
             </div>
-            {chart ? <PriceChart data={chart} signal={setup?.signal ?? null} /> : <div className="chart empty">{loading ? 'Memuat grafik…' : 'Grafik tidak tersedia untuk koin ini'}</div>}
+            {chart && tfChoice
+              ? <PriceChart data={chart} signal={setup?.signal ?? null} streaming={config?.data_mode !== 'demo'} interval={tfChoice} onInterval={setTfChoice} />
+              : <div className="chart empty">{loading ? 'Memuat grafik…' : 'Grafik tidak tersedia untuk koin ini'}</div>}
             {setup && <Context setup={setup} />}
           </section>
 
