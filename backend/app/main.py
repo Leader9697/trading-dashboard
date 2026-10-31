@@ -18,7 +18,7 @@ from .indicators import ema
 from .market import INTERVAL_SECONDS, MarketError, derivatives, fear_greed, get_klines
 from . import backtest_v3, notify, portfolio, research
 from .backtest import stats as bt_stats
-from .setup import MODES, RULES_V2, btc_regime, build_setup, build_signal, compact
+from .setup import MODES, RULES_V2, btc_chop, btc_regime, build_setup, build_signal, compact
 
 app = FastAPI(title="Crypto Trade Setup Gateway", version="0.2.0")
 app.add_middleware(
@@ -69,7 +69,7 @@ def _setup(settings: Settings, symbol: str, mode: str) -> dict:
         ltf = _closed(raw_ltf, cfg["ltf"], now)
         btc = htf if symbol == "BTCUSDT" else _closed(get_klines(settings, "BTCUSDT", cfg["htf"], 301), cfg["htf"], now)
         s = build_setup(symbol, mode, htf, ltf, derivatives(settings, symbol), fear_greed(settings))
-        s["signal"] = build_signal(s, ltf, btc_regime(btc)[1][-1])
+        s["signal"] = build_signal(s, ltf, btc_regime(btc)[1][-1], btc_chop(btc).get(btc[-1]["time"]))
         s["last_price"] = raw_ltf[-1]["close"]
         return s
 

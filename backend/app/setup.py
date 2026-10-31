@@ -6,6 +6,8 @@ debate (written separately into Edge Config) only argues over these facts.
 
 from __future__ import annotations
 
+import math
+
 from .indicators import atr, ema, macd_hist, pivots, rsi
 from .market import INTERVAL_SECONDS
 
@@ -32,6 +34,10 @@ RULES_V3_POSITIONING = {"oi": "up", "crowd": True, "taker": True}
 # (+0.31R vs +0.19R per trade, 470 vs 576 trades, max drawdown 23R vs 32R).
 LIMIT_ATR, STOP_ATR, TP_R, LIMIT_BARS = 0.25, 2.0, 4.0, 4
 BODY_ATR = 0.1  # signal candle must close at least this far (in ATR) in the trade's direction
+# research_regime (2026-10-31, PR #26): of 14 trending/ranging filters only this one held in
+# 2023-24 and 2025-26: skip signals while BTC's last completed day is choppy (Choppiness
+# Index 14 >= 61.8, the textbook cut). The trades it skips lost in every year 2022-2026.
+CHOP_LEN, CHOP_MAX = 14, 61.8
 MAX_HOLD_BARS = 30  # the backtest closes a trade still open after this many entry bars
 MIN_NOTIONAL = {"BTCUSDT": 100, "ETHUSDT": 20}  # Binance USDT-M minimum order value, others 5 USDT
 VALIDATION = {
@@ -278,7 +284,30 @@ def btc_regime(btc_htf: list[dict]) -> tuple[list[int], list[int]]:
     return [c["time"] for c in btc_htf], out
 
 
-def build_signal(setup: dict, ltf_candles: list[dict], btc_state: int) -> dict:
+def btc_chop(btc_htf: list[dict], n: int = CHOP_LEN) -> dict[int, float]:
+    """Choppiness Index per daily candle, keyed by the candle's open time:
+    100 * log10(sum of true ranges / (highest high - lowest low)) / log10(n)."""
+    tr = [c["high"] - c["low"] if i == 0 else max(c["high"] - c["low"], abs(c["high"] - btc_htf[i - 1]["close"]),
+                                                  abs(c["low"] - btc_htf[i - 1]["close"])) for i, c in enumerate(btc_htf)]
+    out = {}
+    for i in range(n, len(btc_htf)):
+        w = btc_htf[i - n + 1:i + 1]
+        rng = max(c["high"] for c in w) - min(c["low"] for c in w)
+        if rng > 0:
+            out[btc_htf[i]["time"]] = 100 * math.log10(sum(tr[i - n + 1:i + 1]) / rng) / math.log10(n)
+    return out
+
+
+def chop_at(chop: dict[int, float], close_time: int) -> float | None:
+    """BTC's choppiness on the last day completed when a 4h bar closes at `close_time`."""
+    return chop.get((close_time // 86400 - 1) * 86400)
+
+
+def chop_ok(value: float | None) -> bool:
+    return value is None or value < CHOP_MAX
+
+
+def build_signal(setup: dict, ltf_candles: list[dict], btc_state: int, btc_chop_value: float | None = None) -> dict:
     """Rules v3 on top of a setup: v2 (stricter score, BTC regime, volatility, market entry)
     plus rising open interest, retail not crowded on our side and taker flow agreeing."""
     mode, price, score = setup["mode"], setup["price"], setup["price_score"]
@@ -306,6 +335,8 @@ def build_signal(setup: dict, ltf_candles: list[dict], btc_state: int) -> dict:
     last = ltf_candles[-1]
     body = sign * (last["close"] - last["open"]) / a if a else 0.0
     checks.append({"label": "Candle sinyal tutup searah", "ok": body >= BODY_ATR})
+    chop_txt = "" if btc_chop_value is None else f" (CHOP {btc_chop_value:.0f})"
+    checks.append({"label": f"BTC harian tidak sedang choppy{chop_txt}", "ok": chop_ok(btc_chop_value)})
     entry = price - sign * LIMIT_ATR * a
     sl = price - sign * STOP_ATR * a
     risk = (entry - sl) * sign
@@ -327,6 +358,7 @@ def build_signal(setup: dict, ltf_candles: list[dict], btc_state: int) -> dict:
         "min_notional": MIN_NOTIONAL.get(setup["symbol"], 5),
         "checks": checks,
         "btc_regime": btc_state,
+        "btc_chop": None if btc_chop_value is None else round(btc_chop_value, 1),
         "rules": "v3",
         **VALIDATION[mode],
     }

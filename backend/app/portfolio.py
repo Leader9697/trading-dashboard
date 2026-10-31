@@ -31,7 +31,7 @@ from . import research as R
 from . import research_deriv as D
 from . import research_entry as E
 from .market import INTERVAL_SECONDS
-from .setup import LIMIT_BARS, MAX_HOLD_BARS, MODES, TP_R, btc_regime
+from .setup import LIMIT_BARS, MAX_HOLD_BARS, MODES, TP_R, btc_chop, btc_regime, chop_at, chop_ok
 
 PATH = Path(__file__).resolve().parent / "data" / "portfolio.json"
 SIGNALS_PATH = Path("/tmp/portfolio_signals.json")
@@ -87,7 +87,7 @@ def _collect_one(args: tuple) -> tuple[str, dict]:
     from .config import get_settings
     from .market import get_klines
 
-    symbol, bars, regime = args
+    symbol, bars, regime, chop = args
     cfg, settings = MODES["swing"], get_settings()
     htf_bars = bars * STEP // INTERVAL_SECONDS[cfg["htf"]] + 320
     l = get_klines(settings, symbol, cfg["ltf"], bars)[:-1]
@@ -99,7 +99,8 @@ def _collect_one(args: tuple) -> tuple[str, dict]:
         met = D.metrics_history(client, symbol, start, end)
     feats = D.features(l, STEP, fund, met)
     pre = R.precompute(symbol, "swing", h, l, regime)
-    sigs = [i for i in E.signals(pre, D.make_allow(feats, E.V3), len(l)) if V.body_ok(pre, l, i)]
+    sigs = [i for i in E.signals(pre, D.make_allow(feats, E.V3), len(l))
+            if V.body_ok(pre, l, i) and chop_ok(chop_at(chop, l[i]["time"] + STEP))]
     print(f"{symbol}: {len(l)} bars, {len(met)} metrics rows, {len(sigs)} signals", file=sys.stderr, flush=True)
     return symbol, {"first": l[0]["time"], "last": l[-1]["time"] + STEP, "signals": signal_outcomes(pre, l, sigs)}
 
@@ -130,9 +131,9 @@ def collect(symbols: list[str], bars: int) -> dict:
     from .market import get_klines
 
     btc = get_klines(get_settings(), "BTCUSDT", MODES["swing"]["htf"], bars * STEP // 86400 + 320)
-    regime = btc_regime(btc)
+    regime, chop = btc_regime(btc), btc_chop(btc)
     with ProcessPoolExecutor(max_workers=6) as pool:
-        coins = dict(pool.map(_collect_one, [(s, bars, regime) for s in symbols]))
+        coins = dict(pool.map(_collect_one, [(s, bars, regime, chop) for s in symbols]))
     return {"generated": int(time.time()), "filters": exchange_filters(symbols), "coins": coins}
 
 
