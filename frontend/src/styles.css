@@ -418,3 +418,5 @@ footer { margin-top: 24px; font-size: 12px; color: var(--muted); text-align: cen
   .strip.flow > li:nth-child(odd) { border-left: 0; padding-left: 0; }
   .strip.flow > li:nth-child(even) { border-left: 1px solid var(--border); padding-left: 16px; }
 }
+.pipeline details.coins { margin-top: 12px; }
+.pipeline details.coins summary { cursor: pointer; font-weight: 600; }
