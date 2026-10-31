@@ -91,13 +91,15 @@ def trade(p: dict, ltf: list[dict], i: int, entry_v: tuple, stop_v, tp_r: float,
         b = ltf[fill]
         if (b["low"] <= sl) if long else (b["high"] >= sl):
             return {"t": b["time"], "r": -1 - FEE_ROUND_TRIP * entry / risk, "exit": fill, "status": "stop",
-                    "risk_pct": 100 * risk / entry}
+                    "risk_pct": 100 * risk / entry, "signal": i, "fill": fill, "entry": entry, "sl": sl,
+                    "tp": entry + sign * tp_r * risk}
         start = fill + 1
         if start >= len(ltf):
             return None
     r, exit_j, status = R._manage(long, entry, sl, ltf, start, max_hold, tp_r)
     return {"t": ltf[fill]["time"], "r": r - FEE_ROUND_TRIP * entry / risk, "exit": exit_j, "status": status,
-            "risk_pct": 100 * risk / entry}
+            "risk_pct": 100 * risk / entry, "signal": i, "fill": fill, "entry": entry, "sl": sl,
+            "tp": entry + sign * tp_r * risk}
 
 
 def simulate(pre: list, ltf: list[dict], sigs: list[int], entry_v, stop_v, tp_r, max_hold: int) -> list[dict]:

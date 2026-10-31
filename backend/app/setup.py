@@ -27,6 +27,7 @@ RULES_V3_POSITIONING = {"oi": "up", "crowd": True, "taker": True}
 # and one target at 3R beat entering at market with the structure stop (+0.19R vs +0.12R
 # per trade, about the same number of trades, positive in every year).
 LIMIT_ATR, STOP_ATR, TP_R, LIMIT_BARS = 0.25, 2.0, 3.0, 4
+MAX_HOLD_BARS = 30  # the backtest closes a trade still open after this many entry bars
 MIN_NOTIONAL = {"BTCUSDT": 100, "ETHUSDT": 20}  # Binance USDT-M minimum order value, others 5 USDT
 VALIDATION = {
     "swing": {"auto": False, "stage": "forward_test",
@@ -185,6 +186,9 @@ def build_setup(symbol: str, mode: str, htf_candles: list[dict], ltf_candles: li
     htf, ltf = frame_stats(htf_candles), frame_stats(ltf_candles)
     price = ltf["close"]
     score, bull, bear = bias_score(htf, ltf, deriv, fng)
+    # The v3 signal was tested on price alone (funding and Fear & Greed have no usable
+    # history), so it uses the score without those nudges, exactly as the backtest does.
+    price_score = bias_score(htf, ltf, {}, None)[0]
     direction = "long" if score >= 25 else "short" if score <= -25 else "wait"
     highs, lows = pivots(ltf_candles)
 
@@ -213,6 +217,7 @@ def build_setup(symbol: str, mode: str, htf_candles: list[dict], ltf_candles: li
         "direction": direction,
         "plan_side": plan_side,
         "score": score,
+        "price_score": price_score,
         "rating": rating(score),
         "levels": levels,
         "risk_pct": risk_pct,
@@ -234,7 +239,7 @@ def compact(setup: dict) -> dict:
     d = setup["derivatives"]
     return {
         "s": setup["symbol"],
-        "px": setup["price"],
+        "px": setup.get("last_price", setup["price"]),
         "dir": setup["direction"],
         "score": setup["score"],
         "trend": [trend_label(fr["trend"]["trend"]), trend_label(fr["entry"]["trend"])],
@@ -271,14 +276,15 @@ def btc_regime(btc_htf: list[dict]) -> tuple[list[int], list[int]]:
 def build_signal(setup: dict, ltf_candles: list[dict], btc_state: int) -> dict:
     """Rules v3 on top of a setup: v2 (stricter score, BTC regime, volatility, market entry)
     plus rising open interest, retail not crowded on our side and taker flow agreeing."""
-    mode, side, price = setup["mode"], setup["plan_side"], setup["price"]
+    mode, price, score = setup["mode"], setup["price"], setup["price_score"]
+    side = "long" if score >= 0 else "short"
     long = side == "long"
     atr_series = atr(ltf_candles)
     pct = [a / c["close"] for a, c in zip(atr_series, ltf_candles) if a is not None][-200:]
     vol_ok = len(pct) < 50 or pct[-1] >= sorted(pct)[len(pct) // 2]
     checks = [
-        {"label": f"Skor bias minimal {RULES_V2['threshold']} (sekarang {setup['score']})",
-         "ok": abs(setup["score"]) >= RULES_V2["threshold"]},
+        {"label": f"Skor tren minimal {RULES_V2['threshold']} (sekarang {score})",
+         "ok": abs(score) >= RULES_V2["threshold"]},
         {"label": "Searah tren BTC " + MODES[mode]["htf"].upper(), "ok": btc_state == (1 if long else -1)},
         {"label": "Volatilitas di atas median 200 bar", "ok": vol_ok},
     ]
@@ -307,6 +313,8 @@ def build_signal(setup: dict, ltf_candles: list[dict], btc_state: int) -> dict:
         "stop_loss": _round(sl, price),
         "take_profit": _round(tp, price),
         "rr": TP_R,
+        "max_hold_bars": MAX_HOLD_BARS,
+        "max_hold_hours": MAX_HOLD_BARS * INTERVAL_SECONDS[MODES[mode]["ltf"]] // 3600,
         "sl_pct": round(100 * risk / entry, 2) if risk > 0 else None,
         "min_notional": MIN_NOTIONAL.get(setup["symbol"], 5),
         "checks": checks,

@@ -118,7 +118,7 @@ export default function App() {
             <div className="panel-head">
               <div>
                 <h2>{base(symbol)}<small>/USDT, {tfChoice}</small></h2>
-                {setup && <p className="price">{fmt(setup.price)}</p>}
+                {setup && <p className="price">{fmt(setup.last_price ?? setup.price)}</p>}
               </div>
               {tfChoice && tfChoice !== tf?.entry && <p className="note">Sinyal dihitung di {tf?.entry}. Garis entry, SL dan TP tetap sama di timeframe ini.</p>}
             </div>
@@ -277,6 +277,7 @@ function SetupCard({ setup }: { setup: Setup }) {
         <div className="full"><dt>Entry ({SIDE_LABEL[sig.side].toLowerCase()}, order limit)</dt><dd>{fmt(sig.entry)}</dd><small>Berlaku {sig.valid_hours ?? 16} jam. Kalau tidak terisi, batalkan dan jangan kejar harga.</small></div>
         <div><dt>Stop loss</dt><dd className="down">{fmt(sig.stop_loss)}</dd><small>{sig.sl_pct ?? '–'}% dari entry</small></div>
         <div><dt>Take profit</dt><dd className="up">{fmt(sig.take_profit)}</dd><small>R:R 1:{sig.rr}, tutup semua di sini</small></div>
+        <div className="full"><dt>Batas waktu</dt><dd>{Math.round((sig.max_hold_hours ?? 120) / 24)} hari</dd><small>Belum kena TP atau SL setelah itu: tutup di harga pasar, sama seperti di backtest.</small></div>
       </dl>
       <Sizing sig={sig} />
       <h3>Syarat sinyal</h3>
@@ -284,7 +285,7 @@ function SetupCard({ setup }: { setup: Setup }) {
         {sig.checks.map((c) => <li key={c.label} className={c.ok ? 'ok' : 'no'}>{c.label}</li>)}
       </ul>
       <p className="note">{STAGE_LABEL[sig.stage]} {sig.note}</p>
-      <p className="source">Skor bias teknikal {signed(setup.score)} ({setup.rating}). Tren {setup.timeframes.trend}, entry {setup.timeframes.entry}. Candle terakhir {wib(setup.as_of)}.</p>
+      <p className="source">Skor bias {signed(setup.score)} ({setup.rating}), termasuk funding dan Fear & Greed. Sinyal memakai skor tren saja, sama seperti backtest. Tren {setup.timeframes.trend}, entry {setup.timeframes.entry}. Candle terakhir {wib(setup.as_of)}.</p>
     </>
   );
 }
@@ -384,7 +385,7 @@ function ResearchPanel() {
           <div key={y}><span>{y}, {n} trade</span><strong className={tone(e)}>{r(e)}</strong></div>
         ))}
       </div>
-      <p className="note">Entry limit 0,25 ATR lebih baik dari harga sinyal (berlaku 4 candle, dilewati kalau tidak terisi), SL 2 ATR, satu TP di 3R, satu posisi per koin, biaya 0,08% sudah dipotong. Dibanding entry market + SL struktur + TP 2,5R (571 trade, +0,12R, total +68,5R): jumlah trade hampir sama, hasil per trade naik. Winrate di bawah 40%, jadi kalah beruntun panjang itu normal dan risiko per trade harus kecil. Uji harga saja 2017–2026 (10 koin, 4260 trade, tanpa data OI): +0,06R per trade, rugi di tahun bear/sideways (2018, 2022, 2023). Hasil masa lalu tidak menjamin hasil berikutnya.</p>
+      <p className="note">Entry limit 0,25 ATR lebih baik dari harga sinyal (berlaku 4 candle, dilewati kalau tidak terisi), SL 2 ATR, satu TP di 3R, satu posisi per koin, biaya 0,08% sudah dipotong. Dibanding entry market + SL struktur + TP 2,5R (571 trade, +0,12R, total +68,5R): jumlah trade hampir sama, hasil per trade naik. Winrate di bawah 40%, jadi kalah beruntun panjang itu normal dan risiko per trade harus kecil. Uji harga saja 2017–2026 (10 koin, 4260 trade, tanpa data OI): +0,06R per trade, rugi di tahun bear/sideways (2018, 2022, 2023). Dengan modal $55 dan risiko 1%, semua trade BTC dan sebagian besar ETH di bawah minimal order Binance; yang benar-benar bisa dipasang 331 trade, +0,25R per trade. Nyalakan Trade lalu di grafik untuk melihat setiap trade. Hasil masa lalu tidak menjamin hasil berikutnya.</p>
     </section>
   );
 }

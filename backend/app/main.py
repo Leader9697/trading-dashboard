@@ -16,7 +16,7 @@ from . import journal as journal_mod
 from .backtest import BARS, summarize
 from .indicators import ema
 from .market import INTERVAL_SECONDS, MarketError, derivatives, fear_greed, get_klines
-from . import notify, research
+from . import backtest_v3, notify, research
 from .backtest import stats as bt_stats
 from .setup import MODES, RULES_V2, btc_regime, build_setup, build_signal, compact
 
@@ -54,14 +54,23 @@ def _mode(mode: str) -> str:
     return mode
 
 
+def _closed(rows: list[dict], interval: str, now: float) -> list[dict]:
+    return [c for c in rows if c["time"] + INTERVAL_SECONDS[interval] <= now]
+
+
 def _setup(settings: Settings, symbol: str, mode: str) -> dict:
     def compute():
         cfg = MODES[mode]
-        htf = get_klines(settings, symbol, cfg["htf"], 300)
-        ltf = get_klines(settings, symbol, cfg["ltf"], 300)
-        btc = htf if symbol == "BTCUSDT" else get_klines(settings, "BTCUSDT", cfg["htf"], 300)
+        now = time.time()
+        # Binance returns the still-forming candle last. The backtest only ever sees closed
+        # candles, so the setup and signal are built from closed candles too.
+        raw_ltf = get_klines(settings, symbol, cfg["ltf"], 301)
+        htf = _closed(get_klines(settings, symbol, cfg["htf"], 301), cfg["htf"], now)
+        ltf = _closed(raw_ltf, cfg["ltf"], now)
+        btc = htf if symbol == "BTCUSDT" else _closed(get_klines(settings, "BTCUSDT", cfg["htf"], 301), cfg["htf"], now)
         s = build_setup(symbol, mode, htf, ltf, derivatives(settings, symbol), fear_greed(settings))
-        s["signal"] = build_signal(s, ltf, btc_regime(btc)[1][-2])  # last fully closed BTC candle
+        s["signal"] = build_signal(s, ltf, btc_regime(btc)[1][-1])
+        s["last_price"] = raw_ltf[-1]["close"]
         return s
 
     return _cached(("setup", settings.data_mode, symbol, mode), compute)
@@ -176,6 +185,22 @@ def backtest(symbol: str, mode: str = "swing", rules: str = "v1", settings: Sett
         return _cached(("bt", settings.data_mode, symbol, mode, rules), compute, ttl=1800)
     except MarketError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.get("/api/backtest/{symbol}/trades")
+def backtest_trades(symbol: str) -> dict:
+    """Past trades of the live v3 rules for one coin, precomputed by app.backtest_v3."""
+    symbol = _symbol(symbol)
+    saved = backtest_v3.load_saved()
+    if not saved or symbol not in saved["coins"]:
+        return {"symbol": symbol, "available": False}
+    trades = saved["coins"][symbol]
+    return {
+        "symbol": symbol, "available": True, "generated": saved["generated"], "rules": saved["rules"],
+        "stats": bt_stats(trades, "r"),
+        "below_min": sum(1 for t in trades if t["below_min"]),
+        "trades": trades,
+    }
 
 
 def _deltas(curve: list[dict]) -> list[dict]:

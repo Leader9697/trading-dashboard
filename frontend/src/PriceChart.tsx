@@ -13,7 +13,7 @@ import {
   type ISeriesApi,
   type Time,
 } from 'lightweight-charts';
-import { api, fmt, type Candle, type CandleResponse, type Signal } from './api';
+import { api, fmt, type Candle, type CandleResponse, type PastTrades, type Signal } from './api';
 import { DrawingLayer, type Tool } from './chart/drawings';
 import { bollinger, ema, rsi } from './chart/indicators';
 
@@ -102,6 +102,8 @@ export function PriceChart({ data, signal, streaming, interval, onInterval }: Pr
   const [count, setCount] = useState(0);
   const [hidden, setHidden] = useState(false);
   const [magnet, setMagnet] = useState(() => stored('td:chart', { magnet: false }).magnet);
+  const [showPast, setShowPast] = useState(() => stored('td:past', { on: false }).on);
+  const [past, setPast] = useState<PastTrades | null>(null);
   const [ind, setInd] = useState<Indicators>(() => stored('td:indicators', DEFAULT_INDICATORS));
   const [menu, setMenu] = useState(false);
   const [max, setMax] = useState(false);
@@ -254,6 +256,20 @@ export function PriceChart({ data, signal, streaming, interval, onInterval }: Pr
     return () => { if (live.current === s) lines.forEach((l) => s.candles.removePriceLine(l)); };
   }, [data, signal]);
 
+  // Past v3 trades as position boxes, fetched once per coin while the toggle is on.
+  useEffect(() => {
+    remember('td:past', { on: showPast });
+    if (!showPast) return;
+    let alive = true;
+    setPast(null);
+    api.pastTrades(data.symbol).then((p) => { if (alive) setPast(p); }, () => { if (alive) setPast({ symbol: data.symbol, available: false }); });
+    return () => { alive = false; };
+  }, [data.symbol, showPast]);
+
+  useEffect(() => {
+    live.current?.layer.setTrades(showPast && past?.available && past.symbol === data.symbol ? past.trades : []);
+  }, [data, past, showPast]);
+
   // Indicator toggles. RSI gets its own pane below the price.
   useEffect(() => {
     const s = live.current;
@@ -339,6 +355,9 @@ export function PriceChart({ data, signal, streaming, interval, onInterval }: Pr
         <button type="button" className="tb" aria-pressed={magnet} onClick={() => setMagnet(!magnet)} title="Magnet: titik gambar menempel ke open, high, low, close">
           <Icon><path d="M5 3v7a5 5 0 0010 0V3M5 6h3M12 6h3" /></Icon>Magnet
         </button>
+        <button type="button" className="tb" aria-pressed={showPast} onClick={() => setShowPast(!showPast)} title="Kotak entry, SL dan TP untuk setiap trade v3 di masa lalu">
+          <Icon><rect x="3.5" y="4.5" width="13" height="5" /><rect x="3.5" y="9.5" width="13" height="5" strokeDasharray="2 2" /></Icon>Trade lalu
+        </button>
         <button type="button" className="tb icon-only" onClick={() => live.current?.chart.timeScale().scrollToRealTime()} title="Ke candle terbaru" aria-label="Ke candle terbaru">
           <Icon><path d="M4 10h11M11 6l4 4-4 4M17 4v12" /></Icon>
         </button>
@@ -384,6 +403,22 @@ export function PriceChart({ data, signal, streaming, interval, onInterval }: Pr
           <div className={`chart${ind.rsi ? ' with-rsi' : ''}`} ref={host} />
         </div>
       </div>
+      {showPast && <PastSummary past={past} symbol={data.symbol} />}
     </div>
+  );
+}
+
+function PastSummary({ past, symbol }: { past: PastTrades | null; symbol: string }) {
+  if (!past || past.symbol !== symbol) return <p className="note past-note">Memuat trade lalu…</p>;
+  if (!past.available) return <p className="note past-note">Belum ada data trade lalu untuk koin ini. Backtest v3 hanya untuk BTC, ETH, SOL, BNB dan XRP.</p>;
+  const s = past.stats;
+  const from = past.trades[0] ? new Date(past.trades[0].fill * 1000).toLocaleDateString('id-ID', { month: 'short', year: 'numeric' }) : '';
+  const total = `${s.total_r > 0 ? '+' : ''}${s.total_r.toFixed(1)}R`;
+  return (
+    <p className="note past-note">
+      {s.trades} trade v3 sejak {from}: winrate {s.winrate ?? '–'}%, total <span className={s.total_r >= 0 ? 'up' : 'down'}>{total}</span>, max drawdown −{s.max_drawdown_r}R.
+      {' '}Hijau = zona TP, merah = zona SL, garis tepi = sisi yang kena; tanpa garis tepi = ditutup karena waktu habis (5 hari). Kotak pudar ({past.below_min}) = posisi di bawah minimal order Binance untuk modal $55, risiko 1%, jadi di akun live akan dilewati.
+      {' '}Geser grafik ke kiri untuk melihat trade lebih lama.
+    </p>
   );
 }

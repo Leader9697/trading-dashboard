@@ -66,6 +66,8 @@ def message(symbol: str, sig: dict, settings: Settings) -> str:
         f"Entry limit {sig['entry']} (berlaku {sig.get('valid_hours', 16)} jam, batalkan kalau tidak terisi)",
         f"Stop loss {sig['stop_loss']} ({sig['sl_pct']}%)",
         f"Take profit {sig['take_profit']} (RR 1:{sig['rr']}, tutup semua)",
+        f"Belum kena TP/SL setelah {sig.get('max_hold_hours', 120) // 24} hari: tutup di harga pasar.",
+        "Kalau posisi koin ini masih jalan, abaikan sinyal ini.",
     ]
     z = sizing(sig, settings.alert_equity, settings.alert_risk_pct)
     if z:
