@@ -53,7 +53,7 @@ agresif, untung, dan aman sekaligus di EURUSD.
 3. Uji dulu di Strategy Tester MT5 broker sendiri: "Every tick based on real ticks", 2023 sampai
    sekarang. Itu lebih akurat dari uji di atas.
 4. Kalau mau live: akun terpisah atau akun cent, uang yang siap hilang. `InpRiskPct` 2-4%.
-   Pada $10.000 dan risiko 4%, lot awal sekitar 0,03-0,05. Di bawah kira-kira $2.000 lot awal
-   jatuh di bawah 0,01 dan EA tidak buka posisi (pesan muncul di chart); pakai akun cent.
+   Pada $10.000 dan risiko 4%, lot awal sekitar 0,02-0,06 (tergantung ATR). Di bawah kira-kira
+   $3.000-4.000 lot awal jatuh di bawah 0,01 dan EA tidak buka posisi (pesan muncul di chart); pakai akun cent.
 
 Simulator: `backend/app/research_ea_grid.py`.
