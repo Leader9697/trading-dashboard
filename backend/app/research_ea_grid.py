@@ -50,7 +50,15 @@ SPREAD = 1.2 * PIP
 SWAP_LONG, SWAP_SHORT = -6.0, -1.0  # $ per lot per night
 LEVERAGE, STOPOUT = 500, 0.5
 WICK = 5 * PIP
-IS_END = int(datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp())
+# Binance EURUSDT before 2023 is too thin to stand in for EURUSD: tens of thousands of 1-minute
+# spikes a year and strongly mean-reverting hourly returns (autocorrelation -0.23 in 2020), which
+# hands any grid fake profits (a fixed 8-pip grid turned $10k into $66M on 2020-23). From 2023 the
+# pair looks like EURUSD (a few hundred spikes a year, hourly autocorrelation near 0), so only
+# 2023 onward is traded: in-sample 2023-2024 for choosing settings, out-of-sample 2025-2026.
+DATA_START = int(datetime(2022, 10, 1, tzinfo=timezone.utc).timestamp())   # indicator warm-up
+IS_START = int(datetime(2023, 1, 1, tzinfo=timezone.utc).timestamp())
+IS_END = int(datetime(2025, 1, 1, tzinfo=timezone.utc).timestamp())
+END = 1 << 62
 
 
 # ---------------------------------------------------------------- data
@@ -149,8 +157,16 @@ class Market:
 
 
 def market(a: np.ndarray, start: int = 0, end: int = 1 << 62) -> Market:
+    a = a[a[:, 0] >= DATA_START]
     t = a[:, 0].astype(np.int64)
-    o, h, l, c = a[:, 1], a[:, 2], a[:, 3], a[:, 4]
+    o, h, l, c = a[:, 1].copy(), a[:, 2].copy(), a[:, 3].copy(), a[:, 4].copy()
+    # a minute whose close sits more than 5 pips from the 5-minute median is a bad print: flatten it
+    med = np.r_[c[:2], np.median(np.lib.stride_tricks.sliding_window_view(c, 5), axis=1), c[-2:]]
+    bad = np.abs(c - med) > 5 * PIP
+    o[bad] = h[bad] = l[bad] = c[bad] = med[bad]
+    o[1:] = np.where(np.abs(o[1:] - c[:-1]) > 5 * PIP, c[:-1], o[1:])  # and an open that jumps away
+    h = np.maximum(h, np.maximum(o, c))
+    l = np.minimum(l, np.minimum(o, c))
     h = np.minimum(h, np.maximum(o, c) + WICK)
     l = np.maximum(l, np.minimum(o, c) - WICK)
 
@@ -168,7 +184,6 @@ def market(a: np.ndarray, start: int = 0, end: int = 1 << 62) -> Market:
     up = c >= o
     path = np.stack([o, np.where(up, l, h), np.where(up, h, l), c], axis=1)
     m = (t >= start) & (t < end)
-    m[:np.searchsorted(t, t[0] + 30 * 86400)] = False  # indicator warm-up (indicators use all history)
     return Market(t[m], path[m], rsi[m], rng[m], trend[m], atr[m], ((t % 86400) // 3600)[m],
                   ((t % 3600) // 60)[m], (((t // 86400) + 3) % 7)[m])
 
@@ -493,22 +508,22 @@ def variants2():
 
 def report(mode: str = "main") -> dict:
     jobs = []
-    if mode in ("tune", "tune2"):  # in-sample only: 2020-2023
-        for k, v in (variants() if mode == "tune" else variants2()).items():
-            jobs.append((f"IS {k}", v, 10_000, 0, IS_END))
+    if mode in ("tune", "tune2"):  # in-sample only
+        for k, v in ({**variants(), **variants2()} if mode == "tune" else variants2()).items():
+            jobs.append((f"IS {k}", v, 10_000, IS_START, IS_END))
             if mode == "tune2" and k.startswith("grid0.6_min8"):
-                jobs.append((f"IS {k} 2x spread", "x2:" + json.dumps({"grid_atr": 0.6}), 10_000, 0, IS_END))
+                jobs.append((f"IS {k} 2x spread", "x2:" + json.dumps({"grid_atr": 0.6}), 10_000, IS_START, IS_END))
     else:
         v14 = json.loads(sys.argv[3]) if len(sys.argv) > 3 else {}
         best = replace(V14(), **v14)
         for cap, lot in ((10_000, 0.01), (1_000, 0.01)):
-            for name, s, e in (("full", 0, 1 << 62), ("IS", 0, IS_END), ("OOS", IS_END, 1 << 62)):
+            for name, s, e in (("full", IS_START, END), ("IS", IS_START, IS_END), ("OOS", IS_END, END)):
                 jobs.append((f"V13 ${cap} {name}", V13(lot=lot), cap, s, e))
-        jobs.append(("V13 $10000 lot0.1 full", V13(lot=0.1), 10_000, 0, 1 << 62))
-        for name, s, e in (("full", 0, 1 << 62), ("IS", 0, IS_END), ("OOS", IS_END, 1 << 62)):
+        jobs.append(("V13 $10000 lot0.1 full", V13(lot=0.1), 10_000, IS_START, END))
+        for name, s, e in (("full", IS_START, END), ("IS", IS_START, IS_END), ("OOS", IS_END, END)):
             jobs.append((f"V14 $10000 {name}", best, 10_000, s, e))
-        jobs.append(("V14 $10000 OOS 2x spread", "x2", 10_000, IS_END, 1 << 62))
-        for y in range(2020, 2027):  # each year from a fresh account: is one year carrying it?
+        jobs.append(("V14 $10000 OOS 2x spread", "x2", 10_000, IS_END, END))
+        for y in range(2023, 2027):  # each year from a fresh account: is one year carrying it?
             s0 = int(datetime(y, 1, 1, tzinfo=timezone.utc).timestamp())
             e0 = int(datetime(y + 1, 1, 1, tzinfo=timezone.utc).timestamp())
             jobs.append((f"V14 $10000 year {y}", best, 10_000, s0, e0))
