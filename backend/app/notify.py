@@ -59,7 +59,9 @@ def sizing(sig: dict, equity: float, risk_pct: float) -> dict | None:
     return {"risk": risk, "notional": notional, "lev": lev, "too_small": notional < sig["min_notional"]}
 
 
-def message(symbol: str, sig: dict, settings: Settings, max_pos: int | None = None) -> str:
+def message(symbol: str, sig: dict, settings: Settings, max_pos: int | None = None,
+            risk_pct: float | None = None) -> str:
+    """`max_pos` and `risk_pct` come from the portfolio engine; without it the alert sizes at ALERT_RISK_PCT."""
     coin = symbol.removesuffix("USDT")
     side = "LONG" if sig["side"] == "long" else "SHORT"
     lines = [
@@ -72,9 +74,10 @@ def message(symbol: str, sig: dict, settings: Settings, max_pos: int | None = No
     ]
     if max_pos:
         lines.append(f"Engine portofolio: maks {max_pos} posisi sekaligus. Kalau sudah {max_pos} posisi terbuka, lewati.")
-    z = sizing(sig, settings.alert_equity, settings.alert_risk_pct)
+    risk_pct = risk_pct or settings.alert_risk_pct
+    z = sizing(sig, settings.alert_equity, risk_pct)
     if z:
-        lines.append(f"Modal ${settings.alert_equity:g}, risiko {settings.alert_risk_pct:g}%: posisi ${z['notional']:.1f}, "
+        lines.append(f"Modal ${settings.alert_equity:g}, risiko {risk_pct:g}%: posisi ${z['notional']:.1f}, "
                      f"leverage {z['lev']}x isolated, rugi ${z['risk']:.2f} kalau kena SL")
         if z["too_small"]:
             lines.append(f"Posisi di bawah minimal order Binance ({sig['min_notional']} USDT): lewati.")
@@ -83,7 +86,7 @@ def message(symbol: str, sig: dict, settings: Settings, max_pos: int | None = No
 
 
 def run(settings: Settings, setup_for, now: float | None = None, test: bool = False,
-        extra: list[str] = (), max_pos: int | None = None) -> dict:
+        extra: list[str] = (), max_pos: int | None = None, risk_pct: float | None = None) -> dict:
     """`setup_for(symbol)` returns the dashboard setup (with its signal) for one coin.
     `extra` adds the portfolio engine's coins to the watchlist."""
     if not settings.telegram_token:
@@ -107,7 +110,7 @@ def run(settings: Settings, setup_for, now: float | None = None, test: bool = Fa
         except Exception:
             return {"ok": True, "test": True, "sample": False}
         _call(settings, "sendMessage", chat_id=chat, disable_web_page_preview=True,
-              text="CONTOH, BUKAN SINYAL. Jangan entry.\n\n" + message(symbol, sig, settings))
+              text="CONTOH, BUKAN SINYAL. Jangan entry.\n\n" + message(symbol, sig, settings, max_pos, risk_pct))
         # Telegram keeps updates for 24h only, so the chat id should be saved as TELEGRAM_CHAT_ID
         return {"ok": True, "test": True, "sample": True, "chat_id": chat}
     step = INTERVAL_SECONDS[MODES["swing"]["ltf"]]
@@ -127,7 +130,7 @@ def run(settings: Settings, setup_for, now: float | None = None, test: bool = Fa
     sent = []
     for symbol, sig in zip(symbols, sigs):
         if sig and sig["active"]:
-            _call(settings, "sendMessage", chat_id=chat, text=message(symbol, sig, settings, max_pos),
+            _call(settings, "sendMessage", chat_id=chat, text=message(symbol, sig, settings, max_pos, risk_pct),
                   disable_web_page_preview=True)
             _sent.add((symbol, closed))
             sent.append(symbol)

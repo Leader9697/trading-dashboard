@@ -33,9 +33,10 @@ def test_portfolio_coins_get_alerts_too(monkeypatch):
     setups = {"SOLUSDT": {"signal": {**SIG, "active": False}}, "BTCUSDT": {"signal": {**SIG, "active": False}},
               "HBARUSDT": {"signal": SIG}}
     close = 1793376000
-    out = notify.run(_settings(), setups.__getitem__, now=close + 300, extra=["SOLUSDT", "HBARUSDT"], max_pos=6)
+    out = notify.run(_settings(), setups.__getitem__, now=close + 300, extra=["SOLUSDT", "HBARUSDT"], max_pos=8,
+                     risk_pct=0.75)
     assert out["sent"] == ["HBARUSDT"]
-    assert "maks 6 posisi" in calls[0][1]["text"]
+    assert "maks 8 posisi" in calls[0][1]["text"] and "risiko 0.75%" in calls[0][1]["text"]
 
 
 def test_sizing_flags_below_minimum_order():
