@@ -370,7 +370,7 @@ function StatGrid({ s }: { s: Stats }) {
   );
 }
 
-const YEARS: [string, number, number][] = [['2022', 80, 0.159], ['2023', 147, 0.147], ['2024', 130, 0.235], ['2025', 124, 0.198], ['2026', 96, 0.212]];
+const YEARS: [string, number, number][] = [['2022', 66, 0.37], ['2023', 117, 0.165], ['2024', 110, 0.311], ['2025', 101, 0.412], ['2026', 76, 0.329]];
 
 function ResearchPanel() {
   return (
@@ -378,14 +378,14 @@ function ResearchPanel() {
       <div className="panel-head">
         <h2>Hasil uji aturan sinyal<small>BTC, ETH, SOL, BNB, XRP, 4h, 2022 sampai Okt 2026</small></h2>
       </div>
-      <StatGrid s={{ trades: 577, winrate: 39.5, expectancy_r: 0.19, total_r: 109.9, profit_factor: 1.32, max_drawdown_r: 32.1 }} />
+      <StatGrid s={{ trades: 470, winrate: 40.9, expectancy_r: 0.31, total_r: 144.4, profit_factor: 1.54, max_drawdown_r: 23.0 }} />
       <h3>Per tahun (rata-rata per trade)</h3>
       <div className="strip folds">
         {YEARS.map(([y, n, e]) => (
           <div key={y}><span>{y}, {n} trade</span><strong className={tone(e)}>{r(e)}</strong></div>
         ))}
       </div>
-      <p className="note">Entry limit 0,25 ATR lebih baik dari harga sinyal (berlaku 4 candle, dilewati kalau tidak terisi), SL 2 ATR, satu TP di 3R, satu posisi per koin, biaya 0,08% sudah dipotong. Dibanding entry market + SL struktur + TP 2,5R (571 trade, +0,12R, total +68,5R): jumlah trade hampir sama, hasil per trade naik. Winrate di bawah 40%, jadi kalah beruntun panjang itu normal dan risiko per trade harus kecil. Uji harga saja 2017–2026 (10 koin, 4260 trade, tanpa data OI): +0,06R per trade, rugi di tahun bear/sideways (2018, 2022, 2023). Dengan modal $55 dan risiko 1%, semua trade BTC dan sebagian besar ETH di bawah minimal order Binance; yang benar-benar bisa dipasang 331 trade, +0,25R per trade. Nyalakan Trade lalu di grafik untuk melihat setiap trade. Hasil masa lalu tidak menjamin hasil berikutnya.</p>
+      <p className="note">Candle sinyal harus tutup searah posisi (badan minimal 0,1 ATR), entry limit 0,25 ATR lebih baik dari harga sinyal (berlaku 4 candle, dilewati kalau tidak terisi), SL 2 ATR, satu TP di 4R, satu posisi per koin, biaya 0,08% sudah dipotong. Dibanding aturan sebelumnya (tanpa syarat candle, TP 3R: 577 trade, +0,19R, total +109,9R, drawdown 32R): trade 18% lebih sedikit tapi hasil per trade, total, dan drawdown semuanya lebih baik, dan tetap lebih baik di data 2025–2026 yang tidak dipakai saat memilih aturan. Winrate sekitar 40%, jadi kalah beruntun panjang itu normal dan risiko per trade harus kecil. Dengan modal $55 dan risiko 1%, semua trade BTC dan sebagian besar ETH di bawah minimal order Binance; yang benar-benar bisa dipasang 271 trade, +0,38R per trade. Nyalakan Trade lalu di grafik untuk melihat setiap trade. Hasil masa lalu tidak menjamin hasil berikutnya.</p>
     </section>
   );
 }

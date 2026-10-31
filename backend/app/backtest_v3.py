@@ -21,7 +21,7 @@ from . import research_deriv as D
 from . import research_entry as E
 from .backtest import FEE_ROUND_TRIP
 from .market import INTERVAL_SECONDS
-from .setup import LIMIT_ATR, LIMIT_BARS, MAX_HOLD_BARS, MIN_NOTIONAL, MODES, STOP_ATR, TP_R, btc_regime
+from .setup import BODY_ATR, LIMIT_ATR, LIMIT_BARS, MAX_HOLD_BARS, MIN_NOTIONAL, MODES, STOP_ATR, TP_R, btc_regime
 
 PATH = Path(__file__).resolve().parent / "data" / "v3_trades.json"
 ENTRY = ("pullback", LIMIT_ATR, LIMIT_BARS, "skip")
@@ -54,17 +54,24 @@ def trades(symbol: str, pre: list, ltf: list[dict], sigs: list[int], step: int) 
     return out
 
 
+def body_ok(pre: list, ltf: list[dict], i: int) -> bool:
+    """The live check that the signal candle closed in the trade's direction."""
+    sign = 1 if pre[i]["side"] == "long" else -1
+    a = pre[i]["atr"]
+    return bool(a) and sign * (ltf[i]["close"] - ltf[i]["open"]) / a >= BODY_ATR
+
+
 def run(data: dict, feats: dict, mode: str = "swing") -> dict:
     regime = btc_regime(data["BTCUSDT"][0])
     step = INTERVAL_SECONDS[MODES[mode]["ltf"]]
     coins = {}
     for s, (h, l) in data.items():
         pre = R.precompute(s, mode, h, l, regime)
-        sigs = E.signals(pre, D.make_allow(feats[s], E.V3), len(l))
+        sigs = [i for i in E.signals(pre, D.make_allow(feats[s], E.V3), len(l)) if body_ok(pre, l, i)]
         coins[s] = trades(s, pre, l, sigs, step)
     return {
         "generated": int(time.time()),
-        "rules": {"entry_atr": LIMIT_ATR, "valid_bars": LIMIT_BARS, "stop_atr": STOP_ATR, "tp_r": TP_R,
+        "rules": {"body_atr": BODY_ATR, "entry_atr": LIMIT_ATR, "valid_bars": LIMIT_BARS, "stop_atr": STOP_ATR, "tp_r": TP_R,
                   "max_hold_bars": MAX_HOLD_BARS, "fee_round_trip": FEE_ROUND_TRIP,
                   "equity": EQUITY, "risk_pct": RISK_PCT},
         "coins": coins,

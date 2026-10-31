@@ -26,12 +26,17 @@ RULES_V3_POSITIONING = {"oi": "up", "crowd": True, "taker": True}
 # than the signal close, valid 4 bars and skipped if unfilled, a stop 2 ATR from the close
 # and one target at 3R beat entering at market with the structure stop (+0.19R vs +0.12R
 # per trade, about the same number of trades, positive in every year).
-LIMIT_ATR, STOP_ATR, TP_R, LIMIT_BARS = 0.25, 2.0, 3.0, 4
+# research_losses (2026-10-31) then found losers and winners look alike at the signal bar,
+# but two changes held out of sample and in every year: skip signals whose candle closed
+# against the trade (body under 0.1 ATR our way) and aim for 4R instead of 3R
+# (+0.31R vs +0.19R per trade, 470 vs 576 trades, max drawdown 23R vs 32R).
+LIMIT_ATR, STOP_ATR, TP_R, LIMIT_BARS = 0.25, 2.0, 4.0, 4
+BODY_ATR = 0.1  # signal candle must close at least this far (in ATR) in the trade's direction
 MAX_HOLD_BARS = 30  # the backtest closes a trade still open after this many entry bars
 MIN_NOTIONAL = {"BTCUSDT": 100, "ETHUSDT": 20}  # Binance USDT-M minimum order value, others 5 USDT
 VALIDATION = {
     "swing": {"auto": False, "stage": "forward_test",
-              "note": "Aturan v3 lolos uji historis 2022–2026 (rata-rata +0,09 s/d +0,21R per trade), tapi edge-nya tipis. Tahap forward test: pakai risiko kecil dulu."},
+              "note": "Aturan v3 lolos uji historis 2022–2026 (rata-rata +0,17 s/d +0,41R per trade tiap tahun), tapi winrate sekitar 40%. Tahap forward test: pakai risiko kecil dulu."},
     "scalp": {"auto": False, "stage": "rejected", "note": "Semua 96 varian aturan rugi di data uji 15m. Jangan dipakai untuk entry."},
 }
 
@@ -298,6 +303,9 @@ def build_signal(setup: dict, ltf_candles: list[dict], btc_state: int) -> dict:
     ]
     sign = 1 if long else -1
     a = setup["frames"]["entry"]["atr"] or 0.0
+    last = ltf_candles[-1]
+    body = sign * (last["close"] - last["open"]) / a if a else 0.0
+    checks.append({"label": "Candle sinyal tutup searah", "ok": body >= BODY_ATR})
     entry = price - sign * LIMIT_ATR * a
     sl = price - sign * STOP_ATR * a
     risk = (entry - sl) * sign

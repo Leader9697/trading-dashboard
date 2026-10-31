@@ -94,7 +94,7 @@ def run(settings: Settings, setup_for, now: float | None = None, test: bool = Fa
         if now - _last_test[0] < 60:
             return {"ok": False, "reason": "Tunggu 1 menit"}
         _last_test[0] = now
-        _call(settings, "sendMessage", chat_id=chat, text="Bot sinyal tersambung. Notif dikirim tiap ada sinyal 6/6 setelah candle 4 jam tutup.")
+        _call(settings, "sendMessage", chat_id=chat, text="Bot sinyal tersambung. Notif dikirim tiap ada sinyal dengan semua syarat terpenuhi setelah candle 4 jam tutup.")
         # A sample in the exact alert format, from the first coin's current plan
         symbol = settings.watchlist[0]
         try:
