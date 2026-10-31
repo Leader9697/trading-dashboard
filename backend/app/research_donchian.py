@@ -18,6 +18,15 @@ The preset was not tuned here. It was picked by its author on BTC, ETH, SOL, BNB
 XRP up to 2026, so for those five coins 2025-26 is not truly unseen; the other
 engine coins are.
 
+Result on data to 2026-10-31 (22 engine coins, $60, 1% risk, all costs and funding):
+  per trade, one coin at a time   2022-24 +0.12R   2025-26 +0.11R  (19 of 22 coins positive after 2025)
+  BTC alone                       2022-24 +0.30R   2025-26 -0.07R
+  account, 2023-24 / 2025-26      v3 +31% / +50%   Donchian +112% / +43%
+  v3 + Donchian, 6 shared slots   +210% / +21%     (Donchian crowds out v3 after 2025)
+  v3 + Donchian, 3 slots each     +61% / +111%     (best after 2025, worst of the mixes before)
+The mix that wins before 2025 loses after it, so the combination is not added to the
+live engine: the edge is real but thin, and which split works is not stable.
+
 Two steps, both run where Binance is reachable (a Vercel Sandbox in sin1):
   python -m app.research_donchian collect [symbols] [bars]   signals, outcomes, funding -> SIGNALS_PATH
   python -m app.research_donchian report                     needs portfolio.SIGNALS_PATH too
