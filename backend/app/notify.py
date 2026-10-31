@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 
@@ -58,7 +59,7 @@ def sizing(sig: dict, equity: float, risk_pct: float) -> dict | None:
     return {"risk": risk, "notional": notional, "lev": lev, "too_small": notional < sig["min_notional"]}
 
 
-def message(symbol: str, sig: dict, settings: Settings) -> str:
+def message(symbol: str, sig: dict, settings: Settings, max_pos: int | None = None) -> str:
     coin = symbol.removesuffix("USDT")
     side = "LONG" if sig["side"] == "long" else "SHORT"
     lines = [
@@ -69,6 +70,8 @@ def message(symbol: str, sig: dict, settings: Settings) -> str:
         f"Belum kena TP/SL setelah {sig.get('max_hold_hours', 120) // 24} hari: tutup di harga pasar.",
         "Kalau posisi koin ini masih jalan, abaikan sinyal ini.",
     ]
+    if max_pos:
+        lines.append(f"Engine portofolio: maks {max_pos} posisi sekaligus. Kalau sudah {max_pos} posisi terbuka, lewati.")
     z = sizing(sig, settings.alert_equity, settings.alert_risk_pct)
     if z:
         lines.append(f"Modal ${settings.alert_equity:g}, risiko {settings.alert_risk_pct:g}%: posisi ${z['notional']:.1f}, "
@@ -79,8 +82,10 @@ def message(symbol: str, sig: dict, settings: Settings) -> str:
     return "\n".join(lines)
 
 
-def run(settings: Settings, setup_for, now: float | None = None, test: bool = False) -> dict:
-    """`setup_for(symbol)` returns the dashboard setup (with its signal) for one coin."""
+def run(settings: Settings, setup_for, now: float | None = None, test: bool = False,
+        extra: list[str] = (), max_pos: int | None = None) -> dict:
+    """`setup_for(symbol)` returns the dashboard setup (with its signal) for one coin.
+    `extra` adds the portfolio engine's coins to the watchlist."""
     if not settings.telegram_token:
         return {"ok": False, "reason": "TELEGRAM_BOT_TOKEN belum diisi"}
     try:
@@ -109,16 +114,21 @@ def run(settings: Settings, setup_for, now: float | None = None, test: bool = Fa
     closed = int(now // step * step)
     if now - closed > WINDOW:
         return {"ok": True, "sent": [], "reason": "di luar jendela setelah candle tutup"}
-    sent = []
-    for symbol in settings.watchlist:
-        if (symbol, closed) in _sent:
-            continue
+    symbols = [s for s in dict.fromkeys([*settings.watchlist, *extra]) if (s, closed) not in _sent]
+
+    def signal(symbol: str) -> dict | None:
         try:
-            sig = setup_for(symbol)["signal"]
+            return setup_for(symbol)["signal"]
         except Exception:  # one coin failing must not block the others
-            continue
-        if sig["active"]:
-            _call(settings, "sendMessage", chat_id=chat, text=message(symbol, sig, settings), disable_web_page_preview=True)
+            return None
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        sigs = list(pool.map(signal, symbols))
+    sent = []
+    for symbol, sig in zip(symbols, sigs):
+        if sig and sig["active"]:
+            _call(settings, "sendMessage", chat_id=chat, text=message(symbol, sig, settings, max_pos),
+                  disable_web_page_preview=True)
             _sent.add((symbol, closed))
             sent.append(symbol)
     return {"ok": True, "sent": sent}
