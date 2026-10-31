@@ -1,67 +1,97 @@
-# Eksekutor order otomatis
+# Eksekutor order otomatis (engine v3)
 
-Program ini memasang sinyal v3 dari dashboard sebagai order Binance Futures (USDT-M), lengkap dengan stop loss dan take profit. Programnya jalan di server gratis Oracle Cloud yang menyala 24 jam.
+Program ini menjalankan engine portofolio v3 dari dashboard sebagai order Binance Futures (USDT-M), persis seperti backtest-nya. Programnya jalan 24 jam di VPS.
 
 Cara kerjanya:
-- Tiap 5 menit program bangun. Dalam 30 menit setelah candle 4 jam tutup, program membaca sinyal tiap koin dari dashboard.
-- Kalau ada sinyal dengan semua syarat terpenuhi, program pasang order market. Ukurannya dihitung supaya kalau kena stop loss, ruginya `RISK_PCT`% dari saldo.
-- Setelah itu dipasang stop loss dan take profit (2,5R) yang menutup seluruh posisi, dengan margin isolated.
-- Kalau stop loss gagal dipasang, posisi langsung ditutup, supaya tidak ada posisi tanpa SL.
-- Maksimal 1 posisi per koin. Setelah `MAX_LOSSES_PER_DAY` kali rugi dalam sehari (WIB), tidak ada entry baru sampai besok.
-- Order sisa dari posisi yang sudah tutup dibersihkan otomatis.
-- Setiap order, entry yang dilewati, atau error dilaporkan ke Telegram.
+- Program mengecek setiap 30 detik. Dalam 30 menit setelah candle 4 jam tutup, program membaca engine dari dashboard: daftar koin (22), risiko 1%, maksimal 6 posisi, dan sinyal tiap koin.
+- Sinyal aktif dipasang sebagai **order limit** di harga entry sinyal, mulai dari skor terkuat. Kalau tidak terisi dalam 16 jam, order dibatalkan.
+- Begitu terisi, langsung dipasang stop loss dan take profit (4R) yang menutup seluruh posisi, dipicu oleh mark price. Kalau stop loss gagal dipasang, posisi langsung ditutup.
+- Posisi yang masih terbuka 5 hari setelah terisi ditutup di harga pasar (time exit).
+- Maksimal 1 posisi per koin dan 6 posisi + order limit sekaligus. Ukuran posisi dihitung supaya kalau kena stop loss, ruginya 1% saldo. Margin isolated dengan leverage di bawah 1/(2 × SL%). Koin yang ordernya di bawah minimal Binance dilewati.
+- Setiap order, isi, pembatalan, penutupan, sinyal yang dilewati, dan error dikirim ke Telegram.
 
 Defaultnya `DRY_RUN=1`, artinya hanya simulasi dan tidak ada order sungguhan.
 
-## 1. Buat server Oracle (gratis)
+## 1. Masuk ke VPS
 
-1. Daftar di https://signup.cloud.oracle.com. Kartu debit/kredit hanya untuk verifikasi, tidak ditagih selama memakai resource "Always Free".
-2. **Home region** dipilih sekali dan tidak bisa diganti. Pilih **Indonesia North (Batam)** kalau ada. Kalau tidak ada, pilih **Japan East (Tokyo)** atau **Singapore**. Hindari region Amerika, karena Binance memblokir IP Amerika.
-3. Masuk ke Compute → Instances → Create instance.
-   - Image: **Ubuntu 24.04**
-   - Shape: **VM.Standard.E2.1.Micro** (Always Free)
-   - Di bagian SSH keys, pilih "Generate a key pair" lalu **unduh private key**-nya.
-4. Setelah statusnya Running, catat **Public IP address**-nya.
+Dari email SocialVPS, catat **IP**, **username** (biasanya `root`) dan **password**. Di PC, buka PowerShell:
+
+```
+ssh root@IP_VPS
+```
+
+Ketik `yes` kalau ditanya, lalu masukkan password (tidak kelihatan saat diketik, itu normal).
 
 ## 2. Buat API key Binance
 
 Binance → Profil → API Management → Create API → System generated.
 
-- Centang **Enable Futures**. Biarkan **Enable Withdrawals tetap mati**.
-- Pilih **Restrict access to trusted IPs only**, lalu isi Public IP server Oracle tadi.
+- Centang **Enable Futures**. **Enable Withdrawals harus tetap mati.**
+- Pilih **Restrict access to trusted IPs only**, lalu isi IP VPS tadi.
 - Di pengaturan Futures, pastikan mode posisinya **One-way** (bukan Hedge).
-- Simpan API key dan secret. **Jangan kirim ke chat siapa pun**, termasuk ke Claude.
+- Pindahkan saldo USDT ke dompet **USDⓈ-M Futures**.
+- Simpan API key dan secret hanya di VPS. **Jangan kirim ke chat siapa pun**, termasuk ke Claude.
 
-## 3. Pasang program di server
+## 3. Pasang program di VPS
 
-Dari PowerShell di PC:
-
-```
-ssh -i C:\path\ke\private-key.key ubuntu@IP_SERVER
-```
-
-Lalu di server:
+Salin baris per baris:
 
 ```
+apt update && apt install -y git python3
+timedatectl set-ntp true
 git clone https://github.com/Leader9697/trading-dashboard.git
 cd trading-dashboard/executor
 cp .env.example .env
-nano .env        # isi API key, secret, token Telegram, chat id. Simpan: Ctrl+O, Enter, Ctrl+X
+nano .env
+```
+
+Di `nano`, isi `BINANCE_API_KEY`, `BINANCE_API_SECRET`, `TELEGRAM_BOT_TOKEN` dan `TELEGRAM_CHAT_ID` (sama dengan yang di Vercel). Simpan dengan Ctrl+O, Enter, lalu keluar dengan Ctrl+X. Lalu:
+
+```
 chmod 600 .env
 python3 executor.py check
 ```
 
-`check` mengecek koneksi, saldo dan mode posisi, lalu mengirim pesan ke Telegram. Kalau semuanya sudah benar, pasang jadwalnya:
+`check` mengecek jam VPS, saldo, mode posisi, izin API key (withdraw harus mati, IP harus dikunci), dan engine di dashboard, lalu mengirim pesan ke Telegram. Kalau semuanya benar, pasang sebagai layanan yang jalan terus dan hidup lagi sendiri setelah VPS restart:
 
 ```
-(crontab -l 2>/dev/null; echo "*/5 * * * * cd $HOME/trading-dashboard/executor && python3 executor.py run >> run.log 2>&1") | crontab -
+cat > /etc/systemd/system/executor-v3.service <<EOF
+[Unit]
+Description=Eksekutor v3
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=$PWD
+ExecStart=/usr/bin/python3 $PWD/executor.py loop
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable --now executor-v3
 ```
 
-Selama `DRY_RUN=1`, setiap sinyal hanya dilaporkan sebagai "SIMULASI" di Telegram. Kalau sudah yakin, ubah ke `DRY_RUN=0` di `.env`.
+## 4. Simulasi dulu, lalu uang asli
 
-Untuk memperbarui program: `cd ~/trading-dashboard && git pull`.
+1. Biarkan `DRY_RUN=1` minimal 1–2 hari. Setiap sinyal muncul di Telegram sebagai "🧪 SIMULASI" lengkap dengan harga limit, SL, TP, jumlah koin dan risikonya. Cocokkan dengan panel "Engine portofolio" di dashboard.
+2. Kalau sudah yakin, buka `nano .env`, ubah ke `DRY_RUN=0`, simpan, lalu `systemctl restart executor-v3`. Telegram akan bilang "ORDER SUNGGUHAN".
 
-Untuk berhenti total: `crontab -r`. Atau hapus API key-nya di Binance.
+Opsional: uji siklus penuh dengan uang palsu di testnet (https://testnet.binancefuture.com, buat API key di sana), isi `BINANCE_TESTNET=1` dan `DRY_RUN=0`. Harga testnet berbeda dari pasar asli, jadi testnet hanya untuk melihat order, SL/TP dan pembatalan berjalan.
+
+## Perintah sehari-hari
+
+| Perlu apa | Perintah |
+|---|---|
+| Lihat order/posisi yang diurus | `cd ~/trading-dashboard/executor && python3 executor.py status` |
+| Lihat log | `journalctl -u executor-v3 -n 50` |
+| Hentikan program | `systemctl stop executor-v3` |
+| Jalankan lagi | `systemctl start executor-v3` |
+| Perbarui program | `cd ~/trading-dashboard && git pull && systemctl restart executor-v3` |
+
+Menghentikan program tidak menutup posisi. SL dan TP yang sudah terpasang tetap ada di Binance, tapi order limit yang belum terisi, pemasangan SL/TP setelah terisi, dan time exit hanya jalan selama program hidup. Untuk berhenti total: hentikan program, tutup posisi dan order di aplikasi Binance, lalu hapus API key-nya.
 
 ## Tes
 
