@@ -354,7 +354,7 @@ def report(raw: dict) -> dict:
         book = {}
         for s in coins:
             book.update(RP.outcomes({**raw, "coins": {s: coins[s]}}, RP.BASE, lambda x, s=s: x["t"] in coin_skip[s]))
-        rows.append({"name": f"random third skipped #{k + 1}", **RP._row("rand", "gate", book, filters, end, LIVE)})
+        rows.append({"name": f"random third skipped #{k + 1}", **RP._row(f"random third skipped #{k + 1}", "gate", book, filters, end, LIVE)})
     base = rows[0]
     for r in rows:
         r["verdict"] = RP.verdict(r, base)
