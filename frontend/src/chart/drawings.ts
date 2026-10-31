@@ -16,8 +16,8 @@ export type Tool = 'cursor' | ToolType;
 export type Point = { time: number; price: number };
 export type Drawing = { id: string; type: ToolType; points: Point[] };
 
-/** Position tool target, matching the live signal rules (one take profit at 3R). */
-export const POSITION_RR = 3;
+/** Position tool target, matching the live signal rules (one take profit at 4R). */
+export const POSITION_RR = 4;
 const FIB_LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
 const HIT = 6;
 const HANDLE = 7;

@@ -4,7 +4,7 @@ Program ini memasang sinyal v3 dari dashboard sebagai order Binance Futures (USD
 
 Cara kerjanya:
 - Tiap 5 menit program bangun. Dalam 30 menit setelah candle 4 jam tutup, program membaca sinyal tiap koin dari dashboard.
-- Kalau ada sinyal 6/6, program pasang order market. Ukurannya dihitung supaya kalau kena stop loss, ruginya `RISK_PCT`% dari saldo.
+- Kalau ada sinyal dengan semua syarat terpenuhi, program pasang order market. Ukurannya dihitung supaya kalau kena stop loss, ruginya `RISK_PCT`% dari saldo.
 - Setelah itu dipasang stop loss dan take profit (2,5R) yang menutup seluruh posisi, dengan margin isolated.
 - Kalau stop loss gagal dipasang, posisi langsung ditutup, supaya tidak ada posisi tanpa SL.
 - Maksimal 1 posisi per koin. Setelah `MAX_LOSSES_PER_DAY` kali rugi dalam sehari (WIB), tidak ada entry baru sampai besok.
