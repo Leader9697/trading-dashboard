@@ -23,7 +23,19 @@ def test_sends_once_per_coin_per_candle(monkeypatch):
     assert first["sent"] == ["SOLUSDT"] and again["sent"] == [] and late["sent"] == []
     assert len(calls) == 1 and calls[0][1]["chat_id"] == "42"
     text = calls[0][1]["text"]
-    assert "LONG SOL" in text and "112.5" in text and "posisi $11.0" in text and "1x isolated" in text
+    assert "LONG SOL" in text and "112.5" in text and "posisi $12.0" in text and "1x isolated" in text
+
+
+def test_portfolio_coins_get_alerts_too(monkeypatch):
+    calls = []
+    monkeypatch.setattr(notify, "_call", lambda s, method, **p: calls.append((method, p)) or {})
+    notify._sent.clear()
+    setups = {"SOLUSDT": {"signal": {**SIG, "active": False}}, "BTCUSDT": {"signal": {**SIG, "active": False}},
+              "HBARUSDT": {"signal": SIG}}
+    close = 1793376000
+    out = notify.run(_settings(), setups.__getitem__, now=close + 300, extra=["SOLUSDT", "HBARUSDT"], max_pos=6)
+    assert out["sent"] == ["HBARUSDT"]
+    assert "maks 6 posisi" in calls[0][1]["text"]
 
 
 def test_sizing_flags_below_minimum_order():

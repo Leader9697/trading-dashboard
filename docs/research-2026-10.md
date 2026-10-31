@@ -100,3 +100,24 @@ Same v3 signals, 108 ways to enter and protect them (market vs limit pullback 0.
 | Limit 0.25 ATR, 4 bars, skip; SL 2 ATR; TP 3R (new live) | 577 | 39.5% | +0.19R | +109.9R | 1.32 | 32.1R |
 
 Per year (new): 2022 +0.16, 2023 +0.15, 2024 +0.24, 2025 +0.20, 2026 +0.21. Neighbouring variants (pullback 0.25 to 0.5 ATR, SL 2 ATR, TP 3R) give +0.19 to +0.20R, so this is a plateau, not a single point. Blind window and out-of-sample both beat the old rule. Caveat: the variant was picked after seeing the full sample.
+
+## Portfolio engine, $60 account (31 Oct 2026)
+
+`app/portfolio.py` replays every v3 signal (7 conditions, limit entry, SL 2 ATR, TP 4R, 5-day exit) of 30 liquid USDT-M coins through one account in time order: one position per coin, a cap on open positions, size rounded down to the Binance lot step, orders under the exchange minimum skipped, leverage under 1/(2 x SL%), margin never above the balance. Candles and positioning data are from Binance (Mar 2022 to Oct 2026, 2023 onward traded), run in a Vercel Sandbox in sin1.
+
+Settings (risk 1%, 6 open positions) and the coin-selection rule were chosen using 2023-2024 only. 2025-2026 was not used for choosing.
+
+| | Jan 2023 - Dec 2024 (used to choose) | Jan 2025 - Oct 2026 (not used) |
+|---|---|---|
+| Trade all coins that fit $60 | +22%, max drawdown 39% | +56%, max drawdown 36%, 313 trades, +0.19R, PF 1.33 |
+| Only coins profitable before each 1 Jan | +20% | +33% |
+| 8 best coins before each 1 Jan | +1% | +38%, drawdown 17% |
+
+By year the account made -$7.2 (2023), +$20.3 (2024), -$16.9 (2025) and +$59.7 (2026) on a $60 start, so most of the profit came from 2026 and one losing year cost a quarter of the balance. Whole period: $60 to $115.9, max drawdown 41.9%.
+
+Findings:
+- BTC, ETH, LINK, LTC, BCH, ETC and AVAX are untradeable at $60 (minimum order $20 to $50 against positions of about $10 to $15): 8 of 30 coins are dropped for that reason alone.
+- Picking the "best" coins from the past did not beat trading every coin that fits. Past winners (HBAR, ICP, AVAX) were not reliably the future winners, so the engine uses the simple list.
+- Per-trade edge is thin (+0.12R over the whole period) and about 35% winrate; a 40% drawdown is normal for this account and should be expected.
+- Optimistic biases: the list is of coins alive today (survivorship), no slippage, limit orders assumed filled when price touches, and 563 signals were skipped because all slots were full, in a fixed strongest-score-first order.
+- Settings grid had 12 combinations and 3 selection rules, so overfitting is limited but not zero.

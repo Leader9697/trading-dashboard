@@ -29,7 +29,7 @@ class Settings:
     telegram_token: str = field(default_factory=lambda: _env("TELEGRAM_BOT_TOKEN"))
     telegram_chat_id: str = field(default_factory=lambda: _env("TELEGRAM_CHAT_ID"))
     # Account size and risk used for the position size in alerts.
-    alert_equity: float = field(default_factory=lambda: float(_env("ALERT_EQUITY", "55")))
+    alert_equity: float = field(default_factory=lambda: float(_env("ALERT_EQUITY", "60")))
     alert_risk_pct: float = field(default_factory=lambda: float(_env("ALERT_RISK_PCT", "1")))
 
     @property

@@ -16,7 +16,7 @@ from . import journal as journal_mod
 from .backtest import BARS, summarize
 from .indicators import ema
 from .market import INTERVAL_SECONDS, MarketError, derivatives, fear_greed, get_klines
-from . import backtest_v3, notify, research
+from . import backtest_v3, notify, portfolio, research
 from .backtest import stats as bt_stats
 from .setup import MODES, RULES_V2, btc_regime, build_setup, build_signal, compact
 
@@ -117,7 +117,9 @@ def candles(
 @app.get("/api/notify")
 def notify_signals(test: bool = False, settings: Settings = Depends(get_settings)) -> dict:
     """Called by the scheduled job after each 4h close; `test=true` sends a hello message."""
-    return notify.run(settings, lambda sym: _setup(settings, sym, "swing"), test=test)
+    saved = portfolio.load_saved() or {}
+    return notify.run(settings, lambda sym: _setup(settings, sym, "swing"), test=test,
+                      extra=saved.get("recommended", []), max_pos=saved.get("settings", {}).get("max_pos"))
 
 
 @app.get("/api/setup/{symbol}")
@@ -204,6 +206,26 @@ def backtest_trades(symbol: str) -> dict:
         "below_min": sum(1 for t in trades if t["below_min"]),
         "trades": trades,
     }
+
+
+@app.get("/api/portfolio")
+def portfolio_view(equity: float = Query(portfolio.EQUITY, gt=0, le=1_000_000),
+                   settings: Settings = Depends(get_settings)) -> dict:
+    """The portfolio engine's backtest and coin list, plus today's signal on each listed coin."""
+    saved = portfolio.load_saved()
+    if not saved:
+        return {"available": False}
+
+    def one(sym: str) -> dict:
+        try:
+            return portfolio.live_plan(sym, _setup(settings, sym, "swing")["signal"], saved, equity)
+        except MarketError as exc:
+            return {"symbol": sym, "active": False, "error": str(exc)}
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        live = list(pool.map(one, saved["recommended"]))
+    live.sort(key=lambda r: (not r["active"], -r.get("checks_ok", 0)))
+    return {"available": True, **saved, "live": live, "live_equity": equity}
 
 
 def _deltas(curve: list[dict]) -> list[dict]:
