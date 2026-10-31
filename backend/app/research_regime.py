@@ -23,6 +23,18 @@ Every measure gets the same tests, decided before looking at 2025-26:
   * gate "skip the weakest third" (the side picked on 2022-24) and the textbook cut
   * for the switch: the mean-reversion strategy alone per trade, then in one account with v3
 
+Result on data to 2026-10-31 (3847 v3 signals, 22 coins; account 2023-24 / 2025-26):
+  v3 live, no gate                         +55% dd 29% / +64% dd 29%   (+0.13R / +0.29R per trade)
+  12 of 14 regime gates                    worse, or better in one period only: skipping "weak
+                                           trend" signals (low ADX, high chop, low ER, squeeze)
+                                           throws away winners; v3's own checks already need a trend
+  BTC Choppiness daily < 61.8 (textbook)   +59% dd 25% / +78% dd 26%   (+0.15R / +0.34R)  better
+    neighbours: < 65 also better, < 70 no change, < 50-58 better in 2023-24 only
+    the trades it skips lost in every year 2022-2026 (about -59R in total, 93 trades)
+  5 gates that skip a random third         0 of 5 better (1 "2025-26 only"): the noise floor
+  mean reversion (Bollinger + RSI fade)     negative per trade 2022-24 in all 12 versions; the
+                                           switch v3 + MR is no better than v3 alone
+
 Two steps, both run where Binance is reachable (a Vercel Sandbox in sin1):
   python -m app.research_regime collect [symbols] [bars]   candles + v3 signals -> RAW_PATH
   python -m app.research_regime report                     compact table -> stdout
@@ -36,6 +48,7 @@ import math
 import random
 import sys
 from concurrent.futures import ProcessPoolExecutor
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import portfolio as P
@@ -379,7 +392,20 @@ def report(raw: dict) -> dict:
     for k in best_is:
         sw[f"MR only [{k}]"] = _acc_row({"mr": mr[k]["book"]}, filters, end)
 
-    return {"data_until": end, "signals": sum(len(c["signals"]) for c in coins.values()), "missing_feats": missing,
+    # 5) the one gate that passed: its neighbours, and what the skipped trades did per year
+    near = {}
+    for cut in (50, 55, 58, 61.8, 65, 70):
+        r = _gate(f"BTC CHOP daily < {cut}", raw, feats, filters, end, "btc_chopD", "<", cut, None)
+        years: dict[str, float] = {}
+        for s, xs in base_book.items():
+            for x in xs:
+                v = value(feats, s, x, "btc_chopD")
+                if "r" in x and v is not None and v >= cut:
+                    y = str(datetime.fromtimestamp(x["t"], timezone.utc).year)
+                    years[y] = round(years.get(y, 0.0) + x["r"], 1)
+        near[str(cut)] = {"is": r["is"], "oos": r["oos"], "verdict": RP.verdict(r, base), "skipped_r": years}
+
+    return {"data_until": end, "btc_chop_near": near, "signals": sum(len(c["signals"]) for c in coins.values()), "missing_feats": missing,
             "cuts": cuts, "buckets": buckets, "gates": rows,
             "mr": {k: {kk: vv for kk, vv in v.items() if kk != "book"} for k, v in mr.items()}, "switch": sw}
 
@@ -421,6 +447,10 @@ def table(out: dict) -> str:
     for k, v in out["switch"].items():
         L.append(f"{k[:40]:40} {v['is']['ret']:>6}({v['is']['jack']:>6}) {v['is']['dd']:>4} | "
                  f"{v['oos']['ret']:>6}({v['oos']['jack']:>6}) {v['oos']['dd']:>4}")
+    L.append("BTC CHOP neighbours: IS ret dd | OOS ret dd | verdict | skipped R per year")
+    for k, v in out["btc_chop_near"].items():
+        L.append(f"<{k:5} {v['is']['ret']:>6} {v['is']['dd']:>4} | {v['oos']['ret']:>6} {v['oos']['dd']:>4} | "
+                 f"{v['verdict']} | {v['skipped_r']}")
     return "\n".join(L)
 
 
