@@ -1,3 +1,4 @@
 .env
 state.json
 state.tmp
+PAUSE

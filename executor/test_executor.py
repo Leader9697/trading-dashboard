@@ -37,10 +37,15 @@ class FakeBinance:
     def __init__(self, cfg):
         self.calls = []
         self.positions = []
+        self.algo = []
+        self.fail = {}
 
     def call(self, method, path, params=None, signed=True, base=None):
         self.calls.append((method, path, params))
+        if self.fail.get((method, path)):
+            raise self.fail[(method, path)].pop(0)
         return {
+            "/fapi/v1/openAlgoOrders": self.algo, "/fapi/v1/openOrders": [],
             "/fapi/v2/positionRisk": self.positions, "/fapi/v1/income": [],
             "/fapi/v1/premiumIndex": {"markPrice": "100.5"},
             "/fapi/v2/balance": [{"asset": "USDT", "balance": "60", "availableBalance": "60"}],
@@ -66,6 +71,8 @@ def setup(tmp_path, monkeypatch, dry="1", data=None):
     monkeypatch.setattr(ex, "http_json", lambda url: data or portfolio())
     sent = []
     monkeypatch.setattr(ex, "telegram", lambda c, t: sent.append(t))
+    monkeypatch.setattr(ex, "HEARTBEAT_HOUR_UTC", 24)  # off unless a test turns it on
+    monkeypatch.setattr(ex, "HERE", tmp_path)
     return cfg, fake, sent
 
 
@@ -120,3 +127,117 @@ def test_unfilled_limit_is_cancelled(tmp_path, monkeypatch):
     ex.run(cfg, now=CLOSE + 120)
     ex.run(cfg, now=CLOSE + 4 * ex.STEP + 5)
     assert sent[-1].startswith("⌛") and ex.load_state(cfg)["trades"] == {}
+
+
+POS = [{"symbol": "XRPUSDT", "positionAmt": "0.12", "entryPrice": "100"}]
+
+
+def posts(fake, path="/fapi/v1/order"):
+    return [c[2] for c in fake.calls if c[:2] == ("POST", path)]
+
+
+def test_lost_reply_still_tracked_and_protected(tmp_path, monkeypatch):
+    cfg, fake, sent = setup(tmp_path, monkeypatch, dry="0", data=portfolio(max_pos=1))
+    fake.fail[("POST", "/fapi/v1/order")] = [TimeoutError("read timed out")]
+    ex.run(cfg, now=CLOSE + 120)
+    assert ex.load_state(cfg)["trades"]["XRPUSDT"]["stage"] == "pending" and sent[0].startswith("⚠️")
+    fake.positions = POS
+    fake.calls.clear()
+    ex.run(cfg, now=CLOSE + 3600)
+    assert [o["type"] for o in posts(fake)] == ["STOP_MARKET", "TAKE_PROFIT_MARKET"]
+
+
+def test_rejected_order_is_forgotten(tmp_path, monkeypatch):
+    cfg, fake, sent = setup(tmp_path, monkeypatch, dry="0", data=portfolio(max_pos=1))
+    fake.fail[("POST", "/fapi/v1/order")] = [ex.BinanceError(-2019, "Margin is insufficient")] * 2
+    ex.run(cfg, now=CLOSE + 120)
+    assert "XRPUSDT" not in ex.load_state(cfg)["trades"] and sent[0].startswith("❌")
+
+
+def test_watchdog_replaces_missing_stop_only(tmp_path, monkeypatch):
+    cfg, fake, sent = setup(tmp_path, monkeypatch, dry="0", data=portfolio(max_pos=1))
+    ex.run(cfg, now=CLOSE + 120)
+    fake.positions = POS
+    ex.run(cfg, now=CLOSE + 3600)
+    fake.calls.clear()
+    fake.algo = [{"symbol": "XRPUSDT", "orderType": "TAKE_PROFIT_MARKET"}]
+    ex.run(cfg, now=CLOSE + 3600 + 60)  # too soon to re-check
+    assert posts(fake) == []
+    ex.run(cfg, now=CLOSE + 3600 + ex.WATCH_EVERY + 1)
+    assert [o["type"] for o in posts(fake)] == ["STOP_MARKET"] and sent[-1].startswith("🛡️")
+
+
+def test_existing_stop_not_duplicated_on_fill(tmp_path, monkeypatch):
+    cfg, fake, sent = setup(tmp_path, monkeypatch, dry="0", data=portfolio(max_pos=1))
+    ex.run(cfg, now=CLOSE + 120)
+    fake.positions = POS
+    fake.algo = [{"symbol": "XRPUSDT", "orderType": "STOP_MARKET"}]
+    fake.calls.clear()
+    ex.run(cfg, now=CLOSE + 3600)
+    assert [o["type"] for o in posts(fake)] == ["TAKE_PROFIT_MARKET"]
+
+
+def test_untracked_position_reported_once(tmp_path, monkeypatch):
+    cfg, fake, sent = setup(tmp_path, monkeypatch, dry="0", data=portfolio(max_pos=1))
+    fake.positions = [{"symbol": "DOGEUSDT", "positionAmt": "50", "entryPrice": "0.2"}]
+    ex.run(cfg, now=CLOSE + 3600)
+    ex.run(cfg, now=CLOSE + 3700)
+    assert sum("DOGE" in t for t in sent) == 1
+
+
+def test_pause_file_blocks_new_entries(tmp_path, monkeypatch):
+    cfg, fake, sent = setup(tmp_path, monkeypatch, dry="0", data=portfolio(max_pos=1))
+    (tmp_path / ex.PAUSE_FILE).touch()
+    ex.run(cfg, now=CLOSE + 120)
+    assert posts(fake) == [] and sent[0].startswith("⏸️")
+
+
+def test_min_balance_blocks_new_entries(tmp_path, monkeypatch):
+    cfg, fake, sent = setup(tmp_path, monkeypatch, dry="0", data=portfolio(max_pos=1))
+    cfg.min_balance = 70
+    ex.run(cfg, now=CLOSE + 120)
+    assert posts(fake) == [] and "MIN_BALANCE" in sent[0]
+
+
+def test_errored_coin_retried_and_stale_data_reported(tmp_path, monkeypatch):
+    data = portfolio()
+    data["live"][0] = {"symbol": "SOLUSDT", "active": False, "error": "timeout"}
+    cfg, fake, sent = setup(tmp_path, monkeypatch, data=data)
+    ex.run(cfg, now=CLOSE + 120)
+    assert "SOLUSDT:%d" % OPEN not in ex.load_state(cfg)["seen"]
+    # next candle: the dashboard never serves it fresh -> one warning after the window
+    monkeypatch.setattr(ex, "http_json", lambda url: portfolio(as_of=OPEN))
+    ex.run(cfg, now=CLOSE + ex.STEP + 60)
+    ex.run(cfg, now=CLOSE + ex.STEP + 3600)
+    ex.run(cfg, now=CLOSE + ex.STEP + 3700)
+    assert sum("terlewat" in t for t in sent) == 1
+
+
+def test_daily_heartbeat(tmp_path, monkeypatch):
+    cfg, fake, sent = setup(tmp_path, monkeypatch)
+    monkeypatch.setattr(ex, "HEARTBEAT_HOUR_UTC", 0)
+    ex.run(cfg, now=CLOSE + 3600)
+    ex.run(cfg, now=CLOSE + 3700)
+    assert sum(t.startswith("💓") for t in sent) == 1
+
+
+def test_monthly_report_on_the_first(tmp_path, monkeypatch):
+    cfg, fake, sent = setup(tmp_path, monkeypatch)
+    monkeypatch.setattr(ex, "HEARTBEAT_HOUR_UTC", 0)
+    first = 1793491200  # 2026-11-01 00:00 UTC
+    assert ex.time.strftime("%Y-%m-%d", ex.time.gmtime(first)) == "2026-11-01"
+    ex.run(cfg, now=first + 600)
+    assert any(t.startswith("📊 Hasil bulan 10/2026") for t in sent)
+    q = [c[2] for c in fake.calls if c[1] == "/fapi/v1/income"][0]
+    assert ex.time.gmtime(q["startTime"] / 1000)[:3] == (2026, 10, 1)
+
+
+def test_watchdog_does_nothing_when_algo_list_unreadable(tmp_path, monkeypatch):
+    cfg, fake, sent = setup(tmp_path, monkeypatch, dry="0", data=portfolio(max_pos=1))
+    ex.run(cfg, now=CLOSE + 120)
+    fake.positions = POS
+    ex.run(cfg, now=CLOSE + 3600)
+    fake.calls.clear()
+    fake.fail[("GET", "/fapi/v1/openAlgoOrders")] = [ex.BinanceError(-1000, "unknown")]
+    ex.run(cfg, now=CLOSE + 3600 + ex.WATCH_EVERY + 1)
+    assert posts(fake) == [] and "XRPUSDT" in ex.load_state(cfg)["trades"]
