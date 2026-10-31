@@ -27,6 +27,7 @@ export type Setup = {
   mode: Mode;
   timeframes: { trend: string; entry: string };
   price: number;
+  last_price?: number;
   as_of: number;
   direction: 'long' | 'short' | 'wait';
   plan_side: 'long' | 'short';
@@ -52,6 +53,7 @@ export type Signal = {
   stop_loss: number;
   take_profit: number;
   rr: number;
+  max_hold_hours?: number;
   sl_pct: number | null;
   min_notional: number;
   checks: { label: string; ok: boolean }[];
@@ -130,6 +132,16 @@ export type Backtest = {
   recent?: { time: number; side: 'long' | 'short'; checks: number; entry: number; stop_loss: number; tp1: number; tp2: number; status: string; r_split: number }[];
 };
 
+export type PastTrade = {
+  signal: number; fill: number; end: number; side: 'long' | 'short';
+  entry: number; stop_loss: number; take_profit: number;
+  status: 'tp' | 'stop' | 'timeout'; r: number; sl_pct: number; below_min: boolean;
+};
+
+export type PastTrades =
+  | { symbol: string; available: false }
+  | { symbol: string; available: true; generated: number; stats: Stats; below_min: number; trades: PastTrade[] };
+
 export type JournalResult = {
   ts: number; symbol: string; side: 'long' | 'short'; entry: number; stop_loss: number; tp1: number; tp2: number;
   status: string; r: number | null;
@@ -158,6 +170,7 @@ export const api = {
   backtest: (symbol: string, mode: Mode, rules: Rules) =>
     request<Backtest>(`/api/backtest/${encodeURIComponent(symbol)}?mode=${mode}&rules=${rules}`),
   journal: () => request<Journal>('/api/journal'),
+  pastTrades: (symbol: string) => request<PastTrades>(`/api/backtest/${encodeURIComponent(symbol)}/trades`),
 };
 
 export function fmt(n: number | null | undefined): string {

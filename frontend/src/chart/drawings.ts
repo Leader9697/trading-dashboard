@@ -9,15 +9,15 @@ import type {
   SeriesAttachedParameter,
   Time,
 } from 'lightweight-charts';
-import { fmt, type Candle } from '../api';
+import { fmt, type Candle, type PastTrade } from '../api';
 
 export type ToolType = 'trend' | 'hline' | 'rect' | 'fib' | 'long' | 'short' | 'measure';
 export type Tool = 'cursor' | ToolType;
 export type Point = { time: number; price: number };
 export type Drawing = { id: string; type: ToolType; points: Point[] };
 
-/** Position tool target, matching the live signal rules (one take profit at 2.5R). */
-export const POSITION_RR = 2.5;
+/** Position tool target, matching the live signal rules (one take profit at 3R). */
+export const POSITION_RR = 3;
 const FIB_LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
 const HIT = 6;
 const HANDLE = 7;
@@ -84,6 +84,8 @@ export class DrawingLayer implements ISeriesPrimitive<Time> {
   selected: string | null = null;
   magnet = false;
   hidden = false;
+  /** Past v3 trades, drawn as read-only position boxes under the user's drawings. */
+  trades: PastTrade[] = [];
 
   private o: Options;
   private hover: string | null = null;
@@ -155,6 +157,11 @@ export class DrawingLayer implements ISeriesPrimitive<Time> {
   setHidden(hidden: boolean) {
     this.hidden = hidden;
     if (hidden) this.select(null);
+    this.requestUpdate();
+  }
+
+  setTrades(trades: PastTrade[]) {
+    this.trades = trades;
     this.requestUpdate();
   }
 
@@ -409,6 +416,7 @@ export class DrawingLayer implements ISeriesPrimitive<Time> {
       ctx.save();
       ctx.font = '12px "IBM Plex Sans", system-ui, sans-serif';
       ctx.textBaseline = 'middle';
+      for (const t of this.trades) this.pastTrade(ctx, t, mediaSize.width);
       if (!this.hidden) {
         for (const d of this.drawings) this.paint(ctx, d, mediaSize.width, d.id === this.selected || d.id === this.hover);
       }
@@ -521,6 +529,41 @@ export class DrawingLayer implements ISeriesPrimitive<Time> {
     label(`Target ${fmt(target.price)} (${pct(entry.price, target.price)})`, ps[2].y + (above ? -14 : 14), c.up);
     label(`Stop ${fmt(stop.price)} (${pct(entry.price, stop.price)})`, ps[1].y + (above ? 14 : -14), c.down);
     label(`${d.type === 'long' ? 'Long' : 'Short'} ${fmt(entry.price)}, RR ${rr.toFixed(2)}`, ps[0].y, c.text);
+  }
+
+  private pastTrade(ctx: CanvasRenderingContext2D, t: PastTrade, width: number) {
+    const x0 = this.x(t.fill), x1 = this.x(t.end);
+    const yE = this.y(t.entry), yS = this.y(t.stop_loss), yT = this.y(t.take_profit);
+    if (x0 === null || x1 === null || yE === null || yS === null || yT === null) return;
+    if (x1 < 0 || x0 > width) return;
+    const c = this.colors, w = Math.max(x1 - x0, 2);
+    ctx.globalAlpha = t.below_min ? 0.55 : 1;
+    ctx.fillStyle = c.upSoft;
+    ctx.fillRect(x0, Math.min(yE, yT), w, Math.abs(yT - yE));
+    ctx.fillStyle = c.downSoft;
+    ctx.fillRect(x0, Math.min(yE, yS), w, Math.abs(yS - yE));
+    // The side that was hit gets an outline, so wins and losses read at a glance.
+    const hitY = t.status === 'tp' ? yT : t.status === 'stop' ? yS : null;
+    if (hitY !== null) {
+      ctx.strokeStyle = t.status === 'tp' ? c.up : c.down;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x0 + 0.5, Math.min(yE, hitY) + 0.5, w - 1, Math.abs(hitY - yE) - 1);
+    }
+    ctx.strokeStyle = c.text;
+    ctx.lineWidth = 1;
+    this.line(ctx, { x: x0, y: yE }, { x: x0 + w, y: yE });
+    const text = `${t.r > 0 ? '+' : '−'}${Math.abs(t.r).toFixed(1)}R`;
+    // The result sits inside the box's top edge, only when it fits, so neighbouring trades never overlap.
+    const tw = ctx.measureText(text).width + 10;
+    if (w >= tw) {
+      const top = Math.min(yT, yS);
+      ctx.fillStyle = t.r > 0 ? c.up : c.down;
+      ctx.fillRect(x0, top, tw, 18);
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'left';
+      ctx.fillText(text, x0 + 5, top + 9);
+    }
+    ctx.globalAlpha = 1;
   }
 
   private ruler(ctx: CanvasRenderingContext2D, d: Drawing, ps: Px[]) {
