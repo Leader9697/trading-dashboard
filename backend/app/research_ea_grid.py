@@ -187,6 +187,7 @@ class Basket:
     max_layers: int = 0
     stop: float = 0.0              # V14: hard stop price
     with_trend: bool = True
+    eq0: float = 0.0
 
     @property
     def n(self):
@@ -307,6 +308,7 @@ class V13:
 @dataclass
 class V14:
     risk_pct: float = 4.0          # worst-case loss of one full trend basket, % of equity
+    max_loss_pct: float = 6.0      # money cap per basket (gaps, slippage)
     mult: float = 1.3
     layers: int = 6                # with the H1 trend
     counter_layers: int = 3        # against the H1 trend
@@ -370,12 +372,12 @@ class V14:
                         continue
                     a.open(s, lot, bid, ask, t)
                     x = a.b[s]
-                    x.step, x.lot0, x.max_layers, x.with_trend = step, lot, n, with_trend
+                    x.step, x.lot0, x.max_layers, x.with_trend, x.eq0 = step, lot, n, with_trend, eq
                     o, stop = self.offsets(n)
                     x.stop = x.prices[0] - s * stop * step
                 continue
             px = bid if s > 0 else ask
-            if (s > 0 and px <= x.stop) or (s < 0 and px >= x.stop):
+            if (s > 0 and px <= x.stop) or (s < 0 and px >= x.stop) or x.pnl(bid, ask) <= -x.eq0 * self.max_loss_pct / 100:
                 a.close(s, bid, ask, t, "hard_stop")
                 continue
             if self.max_hours and t - x.opened >= self.max_hours * 3600:
@@ -474,11 +476,28 @@ def variants():
     return out
 
 
+def variants2():
+    base = V14()
+    out = {}
+    for g in (0.6, 0.8):
+        for mn in (6.0, 8.0, 10.0):
+            out[f"grid{g}_min{mn:g}"] = replace(base, grid_atr=g, min_grid_pips=mn)
+    out["grid0.6_tp0.5"] = replace(base, grid_atr=0.6, tp_atr=0.5)
+    out["grid0.6_risk3"] = replace(base, grid_atr=0.6, risk_pct=3.0)
+    out["grid0.6_layers5"] = replace(base, grid_atr=0.6, layers=5)
+    out["grid0.6_counter1"] = replace(base, grid_atr=0.6, counter_layers=1)
+    out["fixed8pips"] = replace(base, grid_atr=0.0, min_grid_pips=8.0)
+    out["fixed12pips"] = replace(base, grid_atr=0.0, min_grid_pips=12.0)
+    return out
+
+
 def report(mode: str = "main") -> dict:
     jobs = []
-    if mode == "tune":  # in-sample only: 2020-2023
-        for k, v in variants().items():
+    if mode in ("tune", "tune2"):  # in-sample only: 2020-2023
+        for k, v in (variants() if mode == "tune" else variants2()).items():
             jobs.append((f"IS {k}", v, 10_000, 0, IS_END))
+            if mode == "tune2" and k.startswith("grid0.6_min8"):
+                jobs.append((f"IS {k} 2x spread", "x2:" + json.dumps({"grid_atr": 0.6}), 10_000, 0, IS_END))
     else:
         v14 = json.loads(sys.argv[3]) if len(sys.argv) > 3 else {}
         best = replace(V14(), **v14)
@@ -500,9 +519,9 @@ def report(mode: str = "main") -> dict:
 def _job2(arg):
     (name, strat, capital, start, end), _ = arg
     global SPREAD
-    if strat == "x2":
+    if isinstance(strat, str) and strat.startswith("x2"):
         SPREAD *= 2
-        v14 = json.loads(sys.argv[3]) if len(sys.argv) > 3 else {}
+        v14 = json.loads(strat[3:]) if strat.startswith("x2:") else (json.loads(sys.argv[3]) if len(sys.argv) > 3 else {})
         strat = replace(V14(), **v14)
     return _job((name, strat, capital, start, end))
 
