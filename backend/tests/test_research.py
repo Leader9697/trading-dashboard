@@ -28,7 +28,7 @@ def test_manage_stop_first():
 
 def test_setup_has_signal_v2(client):
     sig = client.get("/api/setup/ETHUSDT?mode=swing").json()["signal"]
-    assert sig["auto"] is False and sig["rules"] == "v3" and len(sig["checks"]) == 7
+    assert sig["auto"] is False and sig["rules"] == "v3" and len(sig["checks"]) == 8
     if sig["side"] == "long":
         assert sig["stop_loss"] < sig["entry"] < sig["take_profit"]
     else:
@@ -46,3 +46,16 @@ def test_backtest_rules_v2_and_folds(client):
     assert v2["rules"] == "v2" and len(v2["folds"]) == 4
     assert sum(f["n"] for f in v1["folds"]) == v1["exit_split"]["trades"]
     assert client.get("/api/backtest/SOLUSDT?rules=v9").status_code == 422
+
+
+def test_btc_chop_gate():
+    from app.setup import CHOP_MAX, btc_chop, chop_at, chop_ok
+
+    day = 86400
+    # a straight-line trend is far from choppy, a flat zig-zag is very choppy
+    trend = [{"time": d * day, "open": 100 + d, "high": 101.5 + d, "low": 99.5 + d, "close": 101 + d} for d in range(30)]
+    zig = [{"time": d * day, "open": 100, "high": 102, "low": 98, "close": 101 if d % 2 else 99} for d in range(30)]
+    assert btc_chop(trend)[29 * day] < 40 and btc_chop(zig)[29 * day] > CHOP_MAX
+    # a 4h bar closing on day 30 sees day 29, the last one complete
+    assert chop_at(btc_chop(zig), 30 * day + 4 * 3600) == btc_chop(zig)[29 * day]
+    assert chop_ok(None) and chop_ok(50.0) and not chop_ok(CHOP_MAX)

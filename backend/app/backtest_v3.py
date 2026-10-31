@@ -21,7 +21,8 @@ from . import research_deriv as D
 from . import research_entry as E
 from .backtest import FEE_ROUND_TRIP
 from .market import INTERVAL_SECONDS
-from .setup import BODY_ATR, LIMIT_ATR, LIMIT_BARS, MAX_HOLD_BARS, MIN_NOTIONAL, MODES, STOP_ATR, TP_R, btc_regime
+from .setup import (BODY_ATR, LIMIT_ATR, LIMIT_BARS, MAX_HOLD_BARS, MIN_NOTIONAL, MODES, STOP_ATR, TP_R, btc_chop,
+                    btc_regime, chop_at, chop_ok)
 
 PATH = Path(__file__).resolve().parent / "data" / "v3_trades.json"
 ENTRY = ("pullback", LIMIT_ATR, LIMIT_BARS, "skip")
@@ -70,12 +71,13 @@ def body_ok(pre: list, ltf: list[dict], i: int) -> bool:
 
 
 def run(data: dict, feats: dict, mode: str = "swing") -> dict:
-    regime = btc_regime(data["BTCUSDT"][0])
+    regime, chop = btc_regime(data["BTCUSDT"][0]), btc_chop(data["BTCUSDT"][0])
     step = INTERVAL_SECONDS[MODES[mode]["ltf"]]
     coins = {}
     for s, (h, l) in data.items():
         pre = R.precompute(s, mode, h, l, regime)
-        sigs = [i for i in E.signals(pre, D.make_allow(feats[s], E.V3), len(l)) if body_ok(pre, l, i)]
+        sigs = [i for i in E.signals(pre, D.make_allow(feats[s], E.V3), len(l))
+                if body_ok(pre, l, i) and chop_ok(chop_at(chop, l[i]["time"] + step))]
         coins[s] = trades(s, pre, l, sigs, step)
     return {
         "generated": int(time.time()),
