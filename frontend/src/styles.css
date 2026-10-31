@@ -395,3 +395,28 @@ footer { margin-top: 24px; font-size: 12px; color: var(--muted); text-align: cen
 .portfolio details.coins { margin-top: 20px; }
 .portfolio details.coins summary { cursor: pointer; font-weight: 600; }
 .portfolio .waiting { margin-top: 8px; }
+
+/* engine decision flow */
+.pipeline h3 { margin-top: 20px; }
+.strip.flow { --cols: 6; list-style: none; padding: 0; margin-bottom: 8px; }
+.strip.flow > li { display: flex; flex-direction: column; gap: 4px; padding: 12px 16px 12px; border-left: 1px solid var(--border); min-width: 0; }
+.strip.flow > li:first-child { border-left: 0; padding-left: 0; }
+.strip.flow .flow-name { font-size: 13px; font-weight: 600; color: var(--text); }
+.strip.flow .flow-does { font-size: 12px; color: var(--muted); min-height: 2.8em; }
+.strip.flow strong { font-size: 14px; font-weight: 600; }
+.strip.flow small { font-size: 12px; color: var(--muted); }
+.strip.flow small.up { color: var(--up); }
+.strip.flow small.down { color: var(--down); }
+.pipeline td.small { font-size: 13px; }
+.pipeline button.link { margin-top: 8px; background: none; border: 0; padding: 0; color: var(--text); text-decoration: underline; cursor: pointer; font: inherit; font-size: 13px; }
+@media (max-width: 1000px) {
+  .strip.flow { --cols: 3; }
+  .strip.flow > li:nth-child(4) { border-left: 0; padding-left: 0; }
+}
+@media (max-width: 640px) {
+  .strip.flow { --cols: 2; }
+  .strip.flow > li:nth-child(odd) { border-left: 0; padding-left: 0; }
+  .strip.flow > li:nth-child(even) { border-left: 1px solid var(--border); padding-left: 16px; }
+}
+.pipeline details.coins { margin-top: 12px; }
+.pipeline details.coins summary { cursor: pointer; font-weight: 600; }

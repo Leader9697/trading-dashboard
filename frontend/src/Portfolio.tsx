@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
+import { PipelinePanel } from './Pipeline';
 import { api, fmt, type AccountRun, type LivePlan, type Portfolio, type PortfolioCoin } from './api';
 
 const SIDE_LABEL = { long: 'Long', short: 'Short' } as const;
@@ -176,6 +177,7 @@ export function PortfolioPanel() {
   const skip = p.result.skipped ?? { slots: 0, min_order: 0, margin: 0 };
 
   return (
+    <>
     <section className="panel portfolio wide-panel">
       <div className="panel-head">
         <h2>Engine portofolio<small>modal ${p.equity}, {p.recommended.length} dari {p.candidates} koin, maks {st.max_pos} posisi, risiko {st.risk_pct}% per trade</small></h2>
@@ -245,5 +247,7 @@ export function PortfolioPanel() {
         Satu akun menjalankan sinyal v3 semua koin pilihan sesuai urutan waktu: maks {st.max_pos} posisi, satu posisi per koin, ukuran dibulatkan ke lot Binance, order di bawah minimal Binance dilewati, leverage di bawah 1/(2 × SL%) dan margin tidak boleh melebihi saldo. Sinyal terlewat selama simulasi: {skip.slots} karena slot penuh, {skip.min_order} karena di bawah minimal order, {skip.margin} karena margin kurang. Daftar koin dibuat hari ini, jadi koin yang sudah mati (LUNA, FTT) tidak ikut; hasil nyata kemungkinan lebih buruk. Slippage dan sinyal yang telat dipasang juga belum dihitung. Hasil masa lalu tidak menjamin hasil berikutnya.
       </p>
     </section>
+    <PipelinePanel p={p} />
+    </>
   );
 }
