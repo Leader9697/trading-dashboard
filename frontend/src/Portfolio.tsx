@@ -135,7 +135,7 @@ function LiveTable({ live, maxPos }: { live: LivePlan[]; maxPos: number }) {
           <p className="muted small">{active.length} sinyal aktif. Pasang maksimal {maxPos} posisi sekaligus; kalau slot penuh, lewati sinyal baru sampai ada yang tutup.</p>
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Koin</th><th>Sinyal</th><th className="num">Entry limit</th><th className="num">Stop loss</th><th className="num">Take profit</th><th className="num">Posisi</th><th className="num">Rugi kalau SL</th></tr></thead>
+              <thead><tr><th>Koin</th><th>Sinyal</th><th className="num">Entry limit</th><th className="num">Stop loss</th><th className="num">Take profit</th><th className="num">Nilai posisi</th><th className="num">Jumlah koin</th><th className="num">Margin</th><th className="num">Rugi kalau SL</th></tr></thead>
               <tbody>
                 {active.map((l) => (
                   <tr key={l.symbol}>
@@ -147,6 +147,8 @@ function LiveTable({ live, maxPos }: { live: LivePlan[]; maxPos: number }) {
                     <td className="num">{l.notional === undefined ? '–' : l.fits
                       ? <>{usd(l.notional)} <small>{l.leverage}x</small></>
                       : <small>di bawah min {l.min_notional} USDT, lewati</small>}</td>
+                    <td className="num">{l.fits && l.qty ? l.qty : '–'}</td>
+                    <td className="num">{l.fits && l.notional !== undefined && l.leverage ? usd(l.notional / l.leverage) : '–'}</td>
                     <td className="num">{l.risk_usd === undefined ? '–' : usd(l.risk_usd)}</td>
                   </tr>
                 ))}
