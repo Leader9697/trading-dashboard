@@ -36,7 +36,7 @@ MAX_HOLD_BARS = 30  # the backtest closes a trade still open after this many ent
 MIN_NOTIONAL = {"BTCUSDT": 100, "ETHUSDT": 20}  # Binance USDT-M minimum order value, others 5 USDT
 VALIDATION = {
     "swing": {"auto": False, "stage": "forward_test",
-              "note": "Aturan v3 lolos uji historis 2022–2026 (rata-rata +0,09 s/d +0,21R per trade), tapi edge-nya tipis. Tahap forward test: pakai risiko kecil dulu."},
+              "note": "Aturan v3 lolos uji historis 2022–2026 (rata-rata +0,17 s/d +0,41R per trade tiap tahun), tapi winrate sekitar 40%. Tahap forward test: pakai risiko kecil dulu."},
     "scalp": {"auto": False, "stage": "rejected", "note": "Semua 96 varian aturan rugi di data uji 15m. Jangan dipakai untuk entry."},
 }
 
