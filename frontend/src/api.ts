@@ -156,7 +156,14 @@ export type Journal = {
 export type AccountRun = {
   trades: number; wr: number | null; exp: number | null; pf: number | null;
   final: number; return_pct: number; max_dd_pct: number;
-  skipped?: { busy: number; slots: number; min_order: number; margin: number; unfilled: number };
+  skipped?: Record<Exclude<Decision, 'take'>, number>;
+};
+
+export type Decision = 'take' | 'coin' | 'busy' | 'slots' | 'min_order' | 'margin' | 'unfilled';
+
+export type DecisionRow = {
+  s: string; t: number; side: 'l' | 's'; d: Decision; open: number; eq: number;
+  r?: number; pnl?: number; notional?: number; end?: number; status?: string | null;
 };
 
 export type PortfolioCoin = {
@@ -169,6 +176,7 @@ export type LivePlan = {
   symbol: string; active: boolean; side?: 'long' | 'short'; entry?: number; stop_loss?: number; take_profit?: number;
   sl_pct?: number | null; checks_ok?: number; checks?: number; risk_usd?: number; notional?: number;
   qty?: number | null; leverage?: number; fits?: boolean; min_notional?: number; error?: string;
+  failed?: string[]; score?: number;
 };
 
 export type Portfolio =
@@ -178,6 +186,7 @@ export type Portfolio =
     settings: { risk_pct: number; max_pos: number; max_leverage: number; picker: string; is_end: number; first_year: number };
     recommended: string[];
     result: AccountRun & { years: Record<string, { trades: number; exp: number; pnl: number }>; curve: [number, number][] };
+    decisions?: { signals: number; log: DecisionRow[] };
     oos: AccountRun;
     methods: { name: string; is: AccountRun; oos: AccountRun; all: AccountRun; coins_now: number }[];
     coins: PortfolioCoin[];

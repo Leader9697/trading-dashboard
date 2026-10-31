@@ -334,6 +334,7 @@ def build(raw: dict) -> dict:
     pick, plan = picks[chosen]
     full = replay(coins, filters, pick, t_start, t_end, risk_pct, max_pos)
     oos = replay(coins, filters, pick, IS_END, t_end, risk_pct, max_pos)
+    listed = [row for row in full["log"] if row["d"] != "coin"]  # signals on coins the engine trades
     recommended = sorted(select(coins, filters, last + 1, risk_pct)[chosen])  # the list to trade from now on
 
     # 3) per-coin table: what each coin did and why it is or isn't in the list
@@ -362,7 +363,7 @@ def build(raw: dict) -> dict:
                      "is_end": IS_END, "first_year": FIRST_YEAR, "tp_r": TP_R, "max_hold_bars": MAX_HOLD_BARS},
         "recommended": recommended,
         "result": {**_brief(full), "years": _yearly(full["list"]), "curve": _weekly(full["curve"])},
-        "decisions": {"signals": len(full["log"]), "log": full["log"][-LOG_ROWS:]},
+        "decisions": {"signals": len(listed), "log": listed[-LOG_ROWS:]},
         "oos": _brief(oos, False),
         "methods": methods,
         "grid": grid,
