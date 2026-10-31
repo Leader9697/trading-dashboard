@@ -97,7 +97,8 @@ def _collect_one(args: tuple) -> tuple[str, dict]:
 
 
 def exchange_filters(symbols: list[str]) -> dict:
-    """Lot step, minimum order value and 24h volume from Binance USDT-M futures."""
+    """Lot step (for limit orders, which is what the entry is), minimum order value and
+    24h volume from Binance USDT-M futures."""
     import httpx
 
     info = httpx.get("https://fapi.binance.com/fapi/v1/exchangeInfo", timeout=30).json()
@@ -109,7 +110,7 @@ def exchange_filters(symbols: list[str]) -> dict:
             continue
         f = {x["filterType"]: x for x in s["filters"]}
         out[s["symbol"]] = {
-            "step": float(f["MARKET_LOT_SIZE"]["stepSize"]),
+            "step": float(f["LOT_SIZE"]["stepSize"]),
             "min_notional": float(f["MIN_NOTIONAL"]["notional"]),
             "volume_m": round(vol.get(s["symbol"], 0) / 1e6, 1),
         }
@@ -387,6 +388,10 @@ if __name__ == "__main__":
         syms = sys.argv[2].split(",") if len(sys.argv) > 2 else list(CANDIDATES)
         bars = int(sys.argv[3]) if len(sys.argv) > 3 else 10500
         SIGNALS_PATH.write_text(json.dumps(collect(syms, bars), separators=(",", ":")))
+    elif cmd == "filters":  # refresh lot steps and minimums without downloading history again
+        raw = json.loads(SIGNALS_PATH.read_text())
+        raw["filters"] = exchange_filters(list(raw["coins"]))
+        SIGNALS_PATH.write_text(json.dumps(raw, separators=(",", ":")))
     else:
         out = build(json.loads(SIGNALS_PATH.read_text()))
         PATH.parent.mkdir(exist_ok=True)

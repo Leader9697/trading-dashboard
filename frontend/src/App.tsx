@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { api, fmt, type CandleResponse, type Config, type Debate, type DebateCoin, type Journal, type Setup, type Signal, type Snapshot, type Stats } from './api';
+import { PortfolioPanel } from './Portfolio';
 import { PriceChart } from './PriceChart';
 
 const SIDE_LABEL = { long: 'Long', short: 'Short' } as const;
@@ -138,6 +139,7 @@ export default function App() {
           {setup ? <SetupCard setup={setup} /> : <p className="muted">{loading ? 'Menghitung setup…' : 'Setup tidak tersedia'}</p>}
         </aside>
 
+        <PortfolioPanel />
         <ResearchPanel />
         <JournalPanel />
       </main>
