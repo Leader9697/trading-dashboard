@@ -3,11 +3,11 @@
 Program ini menjalankan engine portofolio v3 dari dashboard sebagai order Binance Futures (USDT-M), persis seperti backtest-nya. Programnya jalan 24 jam di VPS.
 
 Cara kerjanya:
-- Program mengecek setiap 30 detik. Dalam 30 menit setelah candle 4 jam tutup, program membaca engine dari dashboard: daftar koin (22), risiko 1%, maksimal 6 posisi, dan sinyal tiap koin.
+- Program mengecek setiap 30 detik. Dalam 30 menit setelah candle 4 jam tutup, program membaca engine dari dashboard: daftar koin (sekarang 20), risiko per trade (sekarang 0,75%), maksimal posisi (sekarang 8), dan sinyal tiap koin. Angka ini ikut engine di dashboard, jadi kalau engine diperbarui, program ikut tanpa perlu diubah.
 - Sinyal aktif dipasang sebagai **order limit** di harga entry sinyal, mulai dari skor terkuat. Kalau tidak terisi dalam 16 jam, order dibatalkan.
 - Begitu terisi, langsung dipasang stop loss dan take profit (4R) yang menutup seluruh posisi, dipicu oleh mark price. Kalau stop loss gagal dipasang, posisi langsung ditutup.
 - Posisi yang masih terbuka 5 hari setelah terisi ditutup di harga pasar (time exit).
-- Maksimal 1 posisi per koin dan 6 posisi + order limit sekaligus. Ukuran posisi dihitung supaya kalau kena stop loss, ruginya 1% saldo. Margin isolated dengan leverage di bawah 1/(2 × SL%). Koin yang ordernya di bawah minimal Binance dilewati.
+- Maksimal 1 posisi per koin dan 8 posisi + order limit sekaligus. Ukuran posisi dihitung supaya kalau kena stop loss, ruginya 0,75% saldo. Margin isolated dengan leverage di bawah 1/(2 × SL%). Koin yang ordernya di bawah minimal Binance dilewati.
 - Setiap order, isi, pembatalan, penutupan, sinyal yang dilewati, dan error dikirim ke Telegram.
 
 Defaultnya `DRY_RUN=1`, artinya hanya simulasi dan tidak ada order sungguhan.

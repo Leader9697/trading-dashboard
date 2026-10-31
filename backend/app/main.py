@@ -118,8 +118,9 @@ def candles(
 def notify_signals(test: bool = False, settings: Settings = Depends(get_settings)) -> dict:
     """Called by the scheduled job after each 4h close; `test=true` sends a hello message."""
     saved = portfolio.load_saved() or {}
+    st = saved.get("settings", {})
     return notify.run(settings, lambda sym: _setup(settings, sym, "swing"), test=test,
-                      extra=saved.get("recommended", []), max_pos=saved.get("settings", {}).get("max_pos"))
+                      extra=saved.get("recommended", []), max_pos=st.get("max_pos"), risk_pct=st.get("risk_pct"))
 
 
 @app.get("/api/setup/{symbol}")

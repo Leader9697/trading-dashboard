@@ -20,6 +20,20 @@ Intrabar order is unknown on 4h candles, so the stop always wins on a bar that t
 both, and a stop that moves (breakeven, trailing) only applies from the next bar.
 Funding paid or received while a trade is open is taken off every variant.
 
+Result on data to 2026-10-31 (4128 signals, 37 variants; account return 2023-24 / 2025-26):
+  live engine, 1% x 6 slots              +33% dd 43% / +50% dd 35%   (+0.12R / +0.29R per trade)
+  breakeven, trailing, partial TP        all worse in both periods (they cut the 4R winners)
+  TP 3R / 5R / 6R, hold 20 bars, close a  better in 2023-24 only; worse per trade after 2025
+    still-losing trade after 12 bars
+  half size after a loss / in drawdown    smaller drawdown, but at $60 the half size often
+                                          falls under Binance's minimum order: less profit
+  funding filter, calm-coin filter        fewer trades, less profit
+  real Binance fees (maker entry)         slightly better than the 0.08% assumed; BNB +0.6 pt
+  0.75% x 8 slots                         +53% dd 30% / +53% dd 31%   better in both periods
+The same total risk (6%) spread over more positions takes signals the 6 slots had to
+skip. In a risk x slots grid the neighbours (0.75-0.9%, 7-12 slots) are also better
+than 1% x 6, and portfolio.build picks 0.75% x 8 on 2023-24 by itself.
+
 Two steps, both run where Binance is reachable (a Vercel Sandbox in sin1):
   python -m app.research_profit collect [symbols] [bars]   signals + the candles after them -> RAW_PATH
   python -m app.research_profit report                     every variant -> stdout (compact JSON)
