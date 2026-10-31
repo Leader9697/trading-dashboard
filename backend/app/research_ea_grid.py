@@ -168,7 +168,7 @@ def market(a: np.ndarray, start: int = 0, end: int = 1 << 62) -> Market:
     up = c >= o
     path = np.stack([o, np.where(up, l, h), np.where(up, h, l), c], axis=1)
     m = (t >= start) & (t < end)
-    m[:np.searchsorted(t, t[0] + 30 * 86400)] = False  # indicator warm-up
+    m[:np.searchsorted(t, t[0] + 30 * 86400)] = False  # indicator warm-up (indicators use all history)
     return Market(t[m], path[m], rsi[m], rng[m], trend[m], atr[m], ((t % 86400) // 3600)[m],
                   ((t % 3600) // 60)[m], (((t // 86400) + 3) % 7)[m])
 
@@ -508,6 +508,11 @@ def report(mode: str = "main") -> dict:
         for name, s, e in (("full", 0, 1 << 62), ("IS", 0, IS_END), ("OOS", IS_END, 1 << 62)):
             jobs.append((f"V14 $10000 {name}", best, 10_000, s, e))
         jobs.append(("V14 $10000 OOS 2x spread", "x2", 10_000, IS_END, 1 << 62))
+        for y in range(2020, 2027):  # each year from a fresh account: is one year carrying it?
+            s0 = int(datetime(y, 1, 1, tzinfo=timezone.utc).timestamp())
+            e0 = int(datetime(y + 1, 1, 1, tzinfo=timezone.utc).timestamp())
+            jobs.append((f"V14 $10000 year {y}", best, 10_000, s0, e0))
+            jobs.append((f"V13 $10000 year {y}", V13(), 10_000, s0, e0))
     out = {}
     with ProcessPoolExecutor() as ex:
         for name, res in ex.map(_job2, [(j, mode) for j in jobs]):
