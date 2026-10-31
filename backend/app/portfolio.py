@@ -277,8 +277,9 @@ def _yearly(trades: list[dict]) -> dict:
             for k, v in sorted(y.items())}
 
 
-def _brief(r: dict) -> dict:
-    return {k: r[k] for k in ("trades", "wr", "exp", "pf", "final", "return_pct", "max_dd_pct", "skipped")}
+def _brief(r: dict, skipped: bool = True) -> dict:
+    keys = ("trades", "wr", "exp", "pf", "final", "return_pct", "max_dd_pct") + (("skipped",) if skipped else ())
+    return {k: r[k] for k in keys}
 
 
 def build(raw: dict) -> dict:
@@ -296,10 +297,9 @@ def build(raw: dict) -> dict:
         for max_pos in GRID["max_pos"]:
             a = replay(coins, filters, everything, t_start, IS_END, risk_pct, max_pos)
             b = replay(coins, filters, everything, IS_END, t_end, risk_pct, max_pos)
-            grid.append({"risk_pct": risk_pct, "max_pos": max_pos, "is": _brief(a), "oos": _brief(b)})
+            grid.append([risk_pct, max_pos, a["return_pct"], a["max_dd_pct"], b["return_pct"], b["max_dd_pct"]])
     # best in-sample return per unit of drawdown; risk only grows when it pays for its drawdown
-    best = max(grid, key=lambda g: g["is"]["return_pct"] / max(g["is"]["max_dd_pct"], 5))
-    risk_pct, max_pos = best["risk_pct"], best["max_pos"]
+    risk_pct, max_pos = max(grid, key=lambda g: g[2] / max(g[3], 5))[:2]
 
     # 2) coin pickers at those settings: in-sample, out-of-sample, and the whole walk-forward
     picks = pickers(coins, filters, risk_pct, years)
@@ -308,8 +308,8 @@ def build(raw: dict) -> dict:
         a = replay(coins, filters, pick, t_start, IS_END, risk_pct, max_pos)
         b = replay(coins, filters, pick, IS_END, t_end, risk_pct, max_pos)
         w = replay(coins, filters, pick, t_start, t_end, risk_pct, max_pos)
-        methods.append({"name": name, "is": _brief(a), "oos": _brief(b), "all": _brief(w), "years": _yearly(w["list"]),
-                        "plan": {str(y): v for y, v in plan.items()}})
+        methods.append({"name": name, "is": _brief(a, False), "oos": _brief(b, False), "all": _brief(w, False),
+                        "coins_now": len(select(coins, filters, last + 1, risk_pct)[name])})
     # a picker must beat "all" out of sample to be worth its extra hindsight risk
     by_name = {m["name"]: m for m in methods}
     chosen = "all"
@@ -337,8 +337,8 @@ def build(raw: dict) -> dict:
         table.append({"symbol": s, "trades": st["n"], "exp": None if st["exp"] is None else round(st["exp"], 3),
                       "oos_trades": len(oos_trades.get(s, [])),
                       "oos_exp": round(sum(oos_trades[s]) / len(oos_trades[s]), 3) if s in oos_trades else None,
-                      "fit_pct": round(100 * fit_now[s]), "min_notional": f["min_notional"], "volume_m": f["volume_m"],
-                      "since": c["first"], "trade": s in recommended, "reason": reason})
+                      "fit_pct": round(100 * fit_now[s]), "min_notional": f["min_notional"],
+                      "trade": s in recommended, "reason": reason})
 
     return {
         "generated": int(time.time()),
@@ -348,11 +348,12 @@ def build(raw: dict) -> dict:
                      "is_end": IS_END, "first_year": FIRST_YEAR, "tp_r": TP_R, "max_hold_bars": MAX_HOLD_BARS},
         "recommended": recommended,
         "result": {**_brief(full), "years": _yearly(full["list"]), "curve": _weekly(full["curve"])},
-        "oos": {**_brief(oos), "curve": _weekly(oos["curve"])},
+        "oos": _brief(oos, False),
         "methods": methods,
         "grid": grid,
         "coins": table,
-        "filters": {s: filters[s] for s in recommended},
+        "filters": {s: {"step": filters[s]["step"], "min_notional": filters[s]["min_notional"]} for s in recommended},
+        "grid_columns": ["risk_pct", "max_pos", "is_return_pct", "is_max_dd_pct", "oos_return_pct", "oos_max_dd_pct"],
         "candidates": len(coins),
     }
 

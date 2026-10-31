@@ -70,10 +70,18 @@ def test_build_picks_settings_in_sample_and_lists_coins():
     assert "C4USDT" not in out["recommended"]
     row = next(c for c in out["coins"] if c["symbol"] == "C4USDT")
     assert row["trade"] is False and row["reason"] == "min_order"
-    assert out["result"]["curve"][0][1] == P.EQUITY and out["oos"]["curve"][0][0] == P.IS_END
-    # each year's pick only knows trades that closed before that year
-    plan = next(m for m in out["methods"] if m["name"] == "all")["plan"]
-    assert set(plan) == {"2023", "2024", "2025", "2026"}
+    assert out["result"]["curve"][0][1] == P.EQUITY
+    assert set(out["result"]["years"]) == {"2023", "2024", "2025", "2026"}
+    assert len(out["grid"]) == len(P.GRID["risk_pct"]) * len(P.GRID["max_pos"])
+
+
+def test_year_picks_only_know_earlier_trades():
+    raw = _raw()
+    cut = int(datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp())
+    later = {s: {**c, "signals": [g if g["t"] < cut else {**g, "r": -1.05} for g in c["signals"]]} for s, c in raw["coins"].items()}
+    a = P.select(raw["coins"], raw["filters"], cut, 1.0)
+    b = P.select(later, raw["filters"], cut, 1.0)
+    assert a == b  # changing what happens after the cut can't change the pick at the cut
 
 
 def test_portfolio_endpoint(client, monkeypatch, tmp_path):

@@ -156,12 +156,12 @@ export type Journal = {
 export type AccountRun = {
   trades: number; wr: number | null; exp: number | null; pf: number | null;
   final: number; return_pct: number; max_dd_pct: number;
-  skipped: { busy: number; slots: number; min_order: number; margin: number; unfilled: number };
+  skipped?: { busy: number; slots: number; min_order: number; margin: number; unfilled: number };
 };
 
 export type PortfolioCoin = {
   symbol: string; trades: number; exp: number | null; oos_trades: number; oos_exp: number | null;
-  fit_pct: number; min_notional: number; volume_m: number; since: number; trade: boolean;
+  fit_pct: number; min_notional: number; trade: boolean;
   reason: 'min_order' | 'few_trades' | 'weak' | null;
 };
 
@@ -178,8 +178,8 @@ export type Portfolio =
     settings: { risk_pct: number; max_pos: number; max_leverage: number; picker: string; is_end: number; first_year: number };
     recommended: string[];
     result: AccountRun & { years: Record<string, { trades: number; exp: number; pnl: number }>; curve: [number, number][] };
-    oos: AccountRun & { curve: [number, number][] };
-    methods: { name: string; is: AccountRun; oos: AccountRun; all: AccountRun }[];
+    oos: AccountRun;
+    methods: { name: string; is: AccountRun; oos: AccountRun; all: AccountRun; coins_now: number }[];
     coins: PortfolioCoin[];
     live: LivePlan[];
     live_equity: number;
