@@ -219,7 +219,8 @@ def portfolio_view(equity: float = Query(portfolio.EQUITY, gt=0, le=1_000_000),
     def one(sym: str) -> dict:
         try:
             st = _setup(settings, sym, "swing")
-            return {**portfolio.live_plan(sym, st["signal"], saved, equity), "score": abs(st["price_score"])}
+            return {**portfolio.live_plan(sym, st["signal"], saved, equity), "score": abs(st["price_score"]),
+                    "as_of": st["as_of"]}
         except MarketError as exc:
             return {"symbol": sym, "active": False, "error": str(exc)}
 
