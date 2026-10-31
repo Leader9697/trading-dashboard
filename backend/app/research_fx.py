@@ -28,6 +28,7 @@ nothing here was tuned, so the split only shows whether the result holds after 2
 
 Run where datafeed.dukascopy.com is reachable:
   python -m app.research_fx fetch [symbols] [first_year]   writes DATA_DIR/<SYM>_1h.json
+  python -m app.research_fx binance [symbols]              or Binance spot (PAXG, EURUSDT...)
   python -m app.research_fx mt5 <file.csv> <SYMBOL> [utc_offset_h]   or an MT5 H1 export instead
   python -m app.research_fx report [symbols]               prints the result as JSON
 """
@@ -101,6 +102,40 @@ def fetch(symbol: str, first_year: int) -> int:
                 if (y, m) >= (now.year, now.month):
                     break  # the running month is not published as a monthly file yet
                 bars += _month(client, symbol, y, m)
+    DATA_DIR.mkdir(exist_ok=True)
+    (DATA_DIR / f"{symbol}_1h.json").write_text(json.dumps(bars, separators=(",", ":")))
+    return len(bars)
+
+
+# Dukascopy and Yahoo answer 429 to the Vercel Sandbox, so the fallback is Binance spot:
+# PAXG (one token per troy ounce of LBMA gold) for gold and the stablecoin FX pairs.
+BINANCE = {"XAUUSD": "PAXGUSDT", "EURUSD": "EURUSDT", "GBPUSD": "GBPUSDT", "AUDUSD": "AUDUSDT"}
+
+
+def fx_hours(t: int) -> bool:
+    """Open in the FX week: Sunday 21:00 to Friday 21:00 UTC (DST ignored)."""
+    d = datetime.fromtimestamp(t, timezone.utc)
+    wd, h = d.weekday(), d.hour
+    return not (wd == 5 or (wd == 4 and h >= 21) or (wd == 6 and h < 21))
+
+
+def fetch_binance(symbol: str) -> int:
+    """Hourly Binance spot candles, trimmed to FX hours so weekends become gaps as at a broker."""
+    import httpx
+
+    bars, start = [], 0
+    with httpx.Client() as client:
+        while True:
+            rows = client.get("https://api.binance.com/api/v3/klines", timeout=60, params={
+                "symbol": BINANCE[symbol], "interval": "1h", "startTime": start, "limit": 1000}).json()
+            if not rows:
+                break
+            bars += [{"time": r[0] // 1000, "open": float(r[1]), "high": float(r[2]), "low": float(r[3]),
+                      "close": float(r[4]), "volume": float(r[5])} for r in rows]
+            start = rows[-1][0] + 1
+            if len(rows) < 1000:
+                break
+    bars = [b for b in bars[:-1] if fx_hours(b["time"])]  # last hour is still open
     DATA_DIR.mkdir(exist_ok=True)
     (DATA_DIR / f"{symbol}_1h.json").write_text(json.dumps(bars, separators=(",", ":")))
     return len(bars)
@@ -343,7 +378,10 @@ def report(symbols: list[str]) -> dict:
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "report"
     syms = sys.argv[2].split(",") if len(sys.argv) > 2 else list(INSTRUMENTS)
-    if cmd == "mt5":
+    if cmd == "binance":
+        for s in syms:
+            print(s, fetch_binance(s), "hourly bars", file=sys.stderr, flush=True)
+    elif cmd == "mt5":
         print(import_mt5(sys.argv[2], sys.argv[3], int(sys.argv[4]) if len(sys.argv) > 4 else 0), "hourly bars")
     elif cmd == "fetch":
         first = int(sys.argv[3]) if len(sys.argv) > 3 else 2012
