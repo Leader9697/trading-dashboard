@@ -14,13 +14,13 @@ from __future__ import annotations
 from bisect import bisect_right
 
 from .market import INTERVAL_SECONDS
-from .setup import MODES, build_setup
+from .setup import MAX_HOLD_BARS, MODES, build_setup
 
 WINDOW = 300  # candles fed to the setup engine per step, same as live
 WARMUP = 220  # entry-timeframe bars before the first signal
 RULES = {
     # bars a limit order waits for a fill, bars a filled trade may stay open
-    "swing": {"order_bars": 6, "max_hold": 30},
+    "swing": {"order_bars": 6, "max_hold": MAX_HOLD_BARS},
     "scalp": {"order_bars": 8, "max_hold": 48},
 }
 BARS = {"swing": 3000, "scalp": 6000}  # entry-timeframe history: ~16 months of 4h, ~2 months of 15m
