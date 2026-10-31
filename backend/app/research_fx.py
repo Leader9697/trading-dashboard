@@ -26,6 +26,19 @@ Data: Dukascopy hourly bid candles (free), built into UTC 4h bars and UTC daily 
 (Sunday's short session joins Monday). In-sample is up to 2024, out-of-sample 2025-26:
 nothing here was tuned, so the split only shows whether the result holds after 2024.
 
+Result on Binance spot 2020-08..2026-10 (PAXG for gold, stablecoin pairs for FX; Dukascopy
+and Yahoo answered 429 to the sandbox), FX hours only, costs above:
+  gold v3         194 trades  +0.28R  PF 1.52  DD 11R   2020-24 +0.22R   2025-26 +0.39R (70)
+                  longs +0.38R, shorts +0.05R; a blind long on every bar with the same
+                  exits makes +0.20R (blind short -0.22R), so about +0.2R is timing and
+                  the rest is gold's 2020-26 rise. Double costs +0.24R; PAXG 24/7 bars
+                  (weekends kept) +0.13R with 2020-24 near zero: fragile.
+  gold Donchian   +0.08R: 2021-24 -0.09R, 2025-26 +0.43R, so only the 2025 rally.
+  EURUSD v3       239 trades  -0.07R  (2025-26 +0.09R); GBPUSD -0.07R, AUDUSD -0.21R (to 2023)
+  FX Donchian     -0.20R to -0.38R on every pair.
+The price-only checks do not find an edge in FX. On gold the result is positive but rests
+on one strong trend and on how weekend bars are treated, so it is not added to live.
+
 Run where datafeed.dukascopy.com is reachable:
   python -m app.research_fx fetch [symbols] [first_year]   writes DATA_DIR/<SYM>_1h.json
   python -m app.research_fx binance [symbols]              or Binance spot (PAXG, EURUSDT...)
