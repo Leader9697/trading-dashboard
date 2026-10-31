@@ -218,13 +218,14 @@ def portfolio_view(equity: float = Query(portfolio.EQUITY, gt=0, le=1_000_000),
 
     def one(sym: str) -> dict:
         try:
-            return portfolio.live_plan(sym, _setup(settings, sym, "swing")["signal"], saved, equity)
+            st = _setup(settings, sym, "swing")
+            return {**portfolio.live_plan(sym, st["signal"], saved, equity), "score": abs(st["price_score"])}
         except MarketError as exc:
             return {"symbol": sym, "active": False, "error": str(exc)}
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         live = list(pool.map(one, saved["recommended"]))
-    live.sort(key=lambda r: (not r["active"], -r.get("checks_ok", 0)))
+    live.sort(key=lambda r: (not r["active"], -r.get("checks_ok", 0), -r.get("score", 0)))
     return {"available": True, **saved, "live": live, "live_equity": equity}
 
 

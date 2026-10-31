@@ -52,6 +52,7 @@ IS_END = int(datetime(2025, 1, 1, tzinfo=timezone.utc).timestamp())  # account s
 MAX_LEVERAGE = 20
 GRID = {"risk_pct": (1.0, 1.5, 2.0), "max_pos": (2, 3, 4, 6)}
 MIN_PAST_TRADES = 8
+LOG_ROWS = 80  # latest engine decisions kept for the dashboard
 
 
 # ---------------------------------------------------------------- collect
@@ -65,7 +66,12 @@ def signal_outcomes(pre: list, ltf: list[dict], sigs: list[int]) -> list[dict]:
         row = {"t": ltf[i]["time"] + STEP, "side": p["side"][0], "score": abs(p["score"])}
         t = E.trade(p, ltf, i, V.ENTRY, V.STOP, TP_R, MAX_HOLD_BARS)
         if t is None:  # limit never filled: the order still held a slot until it lapsed
+            sign = 1 if p["side"] == "long" else -1
+            limit = ltf[i]["close"] - sign * V.ENTRY[1] * p["atr"]
+            risk = sign * (limit - (ltf[i]["close"] - sign * V.STOP[1] * p["atr"]))
             row["end"] = ltf[min(len(ltf) - 1, i + LIMIT_BARS)]["time"] + STEP
+            if risk > 0:  # what the sizer saw before the order went out
+                row.update(entry=limit, sl_pct=round(100 * risk / limit, 3))
         else:
             row.update(end=ltf[t["exit"]]["time"] + STEP, entry=t["entry"], sl_pct=round(t["risk_pct"], 3),
                        r=round(t["r"], 3), status=t["status"])
@@ -149,13 +155,16 @@ def replay(coins: dict, filters: dict, pick, start: int, end: int, risk_pct: flo
 
     `pick(symbol, t)` says whether the engine trades that coin at time t. Profit is
     booked when a trade closes; sizes use the balance at the signal. Signals arriving
-    together are taken strongest score first.
+    together are taken strongest score first. Every signal gets one line in `log`
+    with the step that decided it, in the order a live engine runs them: coin list,
+    one position per coin, free slot, order size, then whether the limit filled.
     """
     events = sorted(((s, sig) for s, c in coins.items() for sig in c["signals"] if start <= sig["t"] < end),
                     key=lambda e: (e[1]["t"], -e[1]["score"]))
     open_: list[tuple[int, str, float, float]] = []  # (end, symbol, pnl, margin)
     eq, peak, dd = equity, equity, 0.0
-    curve, trades, skipped = [(start, equity)], [], {"busy": 0, "slots": 0, "min_order": 0, "margin": 0, "unfilled": 0}
+    curve, trades, log = [(start, equity)], [], []
+    skipped = {"coin": 0, "busy": 0, "slots": 0, "min_order": 0, "margin": 0, "unfilled": 0}
 
     def close_until(t: int):
         nonlocal eq, peak, dd
@@ -168,37 +177,42 @@ def replay(coins: dict, filters: dict, pick, start: int, end: int, risk_pct: flo
             dd = max(dd, (peak - eq) / peak)
             curve.append((pos[0], eq))
 
-    for symbol, sig in events:
-        close_until(sig["t"])
+    def decide(symbol: str, sig: dict) -> tuple[str, float | None, float]:
         if not pick(symbol, sig["t"]):
-            continue
+            return "coin", None, 0.0
         if any(p[1] == symbol for p in open_):
-            skipped["busy"] += 1
-            continue
+            return "busy", None, 0.0
         if len(open_) >= max_pos:
-            skipped["slots"] += 1
-            continue
+            return "slots", None, 0.0
+        z = size(sig, eq, risk_pct, filters[symbol]) if "sl_pct" in sig else None
+        if "sl_pct" in sig and z is None:
+            return "min_order", None, 0.0
+        if z and z[1] + sum(p[3] for p in open_) > eq:
+            return "margin", None, 0.0
         if "r" not in sig:
-            skipped["unfilled"] += 1
             open_.append((sig["end"], symbol, 0.0, 0.0))  # the pending limit held the slot
-            continue
-        z = size(sig, eq, risk_pct, filters[symbol])
-        if z is None:
-            skipped["min_order"] += 1
-            continue
+            return "unfilled", None, 0.0
         qty, margin = z
-        if margin + sum(p[3] for p in open_) > eq:
-            skipped["margin"] += 1
-            continue
         pnl = sig["r"] * qty * sig["entry"] * sig["sl_pct"] / 100
         open_.append((sig["end"], symbol, pnl, margin))
         trades.append({"s": symbol, "t": sig["t"], "r": sig["r"], "pnl": pnl, "risk": pnl / sig["r"] if sig["r"] else 0})
+        return "take", pnl, qty * sig["entry"]
+
+    for symbol, sig in events:
+        close_until(sig["t"])
+        n_open = len(open_)
+        step, pnl, notional = decide(symbol, sig)
+        if step != "take":
+            skipped[step] += 1
+        log.append({"s": symbol, "t": sig["t"], "side": sig["side"], "d": step, "open": n_open, "eq": round(eq, 2),
+                    **({"r": sig["r"], "pnl": round(pnl, 2), "notional": round(notional, 2), "end": sig["end"],
+                        "status": sig.get("status")} if step == "take" else {})})
     close_until(end + 10 ** 9)
     rs = [t["r"] for t in trades]
     return {
         "trades": len(trades), **{k: v for k, v in R.score(rs).items() if k != "n"},
         "final": round(eq, 2), "return_pct": round(100 * (eq / equity - 1), 1), "max_dd_pct": round(100 * dd, 1),
-        "skipped": skipped, "curve": curve, "list": trades,
+        "skipped": skipped, "curve": curve, "list": trades, "log": log,
     }
 
 
@@ -348,6 +362,7 @@ def build(raw: dict) -> dict:
                      "is_end": IS_END, "first_year": FIRST_YEAR, "tp_r": TP_R, "max_hold_bars": MAX_HOLD_BARS},
         "recommended": recommended,
         "result": {**_brief(full), "years": _yearly(full["list"]), "curve": _weekly(full["curve"])},
+        "decisions": {"signals": len(full["log"]), "log": full["log"][-LOG_ROWS:]},
         "oos": _brief(oos, False),
         "methods": methods,
         "grid": grid,
@@ -365,6 +380,7 @@ def live_plan(symbol: str, sig: dict, saved: dict, equity: float) -> dict:
     row = {"symbol": symbol, "active": sig["active"], "side": sig["side"], "entry": sig["entry"],
            "stop_loss": sig["stop_loss"], "take_profit": sig["take_profit"], "sl_pct": sig["sl_pct"],
            "checks_ok": sum(1 for c in sig["checks"] if c["ok"]), "checks": len(sig["checks"]),
+           "failed": [c["label"] for c in sig["checks"] if not c["ok"]],
            "risk_usd": round(equity * risk_pct / 100, 2)}
     if sig["sl_pct"]:
         z = size({"entry": sig["entry"], "sl_pct": sig["sl_pct"]}, equity, risk_pct,

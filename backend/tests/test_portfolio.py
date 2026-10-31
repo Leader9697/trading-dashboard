@@ -38,6 +38,27 @@ def test_replay_limits_positions_and_books_profit_at_exit():
     assert out["curve"][0] == (0, 60.0) and len(out["curve"]) == 3
 
 
+def test_replay_logs_why_each_signal_was_taken_or_skipped():
+    tiny = {"t": 30, "side": "s", "score": 50, "end": 30 + DAY, "entry": 100.0, "sl_pct": 60.0}  # unfilled, too small
+    coins = {
+        "AAAUSDT": {"signals": [_sig(10, 4.0), _sig(20, -1.0)]},
+        "BBBUSDT": {"signals": [_sig(11, -1.0)]},
+        "CCCUSDT": {"signals": [_sig(12, 4.0)]},
+        "DDDUSDT": {"signals": [tiny]},
+        "EEEUSDT": {"signals": [_sig(13, 4.0)]},
+    }
+    filters = {s: F for s in coins}
+    out = P.replay(coins, filters, lambda s, t: s != "EEEUSDT", 0, 10 * DAY, risk_pct=1, max_pos=2)
+    assert [(row["s"], row["d"]) for row in out["log"]] == [
+        ("AAAUSDT", "take"), ("BBBUSDT", "take"), ("CCCUSDT", "slots"), ("EEEUSDT", "coin"),
+        ("AAAUSDT", "busy"), ("DDDUSDT", "slots"),
+    ]
+    assert out["log"][0]["pnl"] == 2.4 and out["log"][2]["open"] == 2
+    # sized before the order goes out: an unfilled limit below the minimum never held a slot
+    free = P.replay({"DDDUSDT": coins["DDDUSDT"]}, filters, _always, 0, 10 * DAY, risk_pct=1, max_pos=2)
+    assert free["log"][0]["d"] == "min_order" and free["skipped"]["unfilled"] == 0
+
+
 def test_coin_stats_only_use_closed_trades():
     coins = {"AAAUSDT": {"signals": [_sig(0, 1.0), _sig(DAY, 2.0), _sig(5 * DAY, -1.0)]}}
     st = P.coin_stats(coins, 4 * DAY)["AAAUSDT"]
