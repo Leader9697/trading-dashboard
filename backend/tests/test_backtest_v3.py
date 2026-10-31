@@ -25,6 +25,9 @@ def test_trades_use_the_live_exits(monkeypatch):
         assert t["signal"] <= t["fill"] < t["end"]
         assert t["end"] - t["fill"] <= (MAX_HOLD_BARS + 2) * 14400
         assert t["status"] in {"tp", "stop", "timeout"}
+        hit = {"tp": t["take_profit"], "stop": t["stop_loss"]}.get(t["status"])
+        if hit is not None:  # the exit recovered from R lands on the level that was hit
+            assert abs(t["exit"] - hit) < 2e-3 * risk
     # one position per coin: a trade starts only after the previous one ended
     for ts in out["coins"].values():
         assert all(a["end"] <= b["fill"] for a, b in zip(ts, ts[1:]))
@@ -38,6 +41,7 @@ def test_trades_endpoint(client, monkeypatch, tmp_path):
     monkeypatch.setattr(V, "PATH", path)
     body = client.get("/api/backtest/btcusdt/trades").json()
     assert body["available"] and body["stats"]["trades"] == 1 and body["below_min"] == 1
+    assert abs(body["trades"][0]["exit"] - (10 + 2.9 + 0.008)) < 0.01  # older files get the exit filled in
     assert client.get("/api/backtest/DOGEUSDT/trades").json()["available"] is False
 
 

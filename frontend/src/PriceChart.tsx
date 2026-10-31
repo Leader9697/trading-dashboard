@@ -417,7 +417,7 @@ function PastSummary({ past, symbol }: { past: PastTrades | null; symbol: string
   return (
     <p className="note past-note">
       {s.trades} trade v3 sejak {from}: winrate {s.winrate ?? '–'}%, total <span className={s.total_r >= 0 ? 'up' : 'down'}>{total}</span>, max drawdown −{s.max_drawdown_r}R.
-      {' '}Hijau = zona TP, merah = zona SL, garis tepi = sisi yang kena; tanpa garis tepi = ditutup karena waktu habis (5 hari). Kotak pudar ({past.below_min}) = posisi di bawah minimal order Binance untuk modal $55, risiko 1%, jadi di akun live akan dilewati.
+      {' '}Hijau = zona TP, merah = zona SL, garis tepi = sisi yang kena. Trade yang belum kena TP atau SL dalam 5 hari ditutup di harga saat itu, ditandai garis putus-putus dan titik; R-nya dihitung dari harga tutup itu, jadi bisa plus walau TP belum tercapai. Kotak pudar ({past.below_min}) = posisi di bawah minimal order Binance untuk modal $55, risiko 1%, jadi di akun live akan dilewati.
       {' '}Geser grafik ke kiri untuk melihat trade lebih lama.
     </p>
   );

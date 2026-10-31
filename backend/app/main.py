@@ -195,6 +195,9 @@ def backtest_trades(symbol: str) -> dict:
     if not saved or symbol not in saved["coins"]:
         return {"symbol": symbol, "available": False}
     trades = saved["coins"][symbol]
+    fee = saved.get("rules", {}).get("fee_round_trip", backtest_v3.FEE_ROUND_TRIP)
+    for t in trades:
+        t.setdefault("exit", round(backtest_v3.exit_price(t, fee), backtest_v3._digits(t["entry"])))
     return {
         "symbol": symbol, "available": True, "generated": saved["generated"], "rules": saved["rules"],
         "stats": bt_stats(trades, "r"),
