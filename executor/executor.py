@@ -25,6 +25,7 @@ DRY_RUN=1 (the default) reports what it would do without ordering.
 
 from __future__ import annotations
 
+import calendar
 import hashlib
 import hmac
 import json
@@ -45,6 +46,9 @@ LIMIT_BARS = 4           # an unfilled entry is cancelled after 4 candles (16h)
 MAX_HOLD_BARS = 30       # backtest: exit at the close of the 31st candle after the fill candle
 MAX_LEVERAGE = 20
 TICK_SECONDS = 30
+WATCH_EVERY = 300        # re-check that every open position still has its SL and TP on Binance
+HEARTBEAT_HOUR_UTC = 0   # daily "still alive" message at 07:00 WIB
+PAUSE_FILE = "PAUSE"     # `touch PAUSE` next to this script: no new entries, open trades still managed
 
 
 def load_env(path: Path = HERE / ".env") -> dict:
@@ -72,6 +76,8 @@ class Config:
         self.dry_run = env.get("DRY_RUN", "1") != "0"
         self.tg_token = env.get("TELEGRAM_BOT_TOKEN", "")
         self.tg_chat = env.get("TELEGRAM_CHAT_ID", "")
+        # No new entries while the futures wallet is below this (USDT). Empty = off.
+        self.min_balance = float(env["MIN_BALANCE"]) if env.get("MIN_BALANCE") else None
         self.state_file = HERE / "state.json"
 
 
@@ -183,7 +189,7 @@ def telegram(cfg: Config, text: str) -> None:
                                    "disable_web_page_preview": "true"}).encode()
     try:
         urllib.request.urlopen(f"https://api.telegram.org/bot{cfg.tg_token}/sendMessage", data=body, timeout=15)
-    except urllib.error.URLError as exc:
+    except Exception as exc:  # a Telegram hiccup must never stop order handling
         print(f"telegram gagal: {exc}", file=sys.stderr)
 
 
@@ -194,6 +200,7 @@ def load_state(cfg: Config) -> dict:
         state = {}
     state.setdefault("seen", [])
     state.setdefault("trades", {})
+    state.setdefault("untracked", [])
     return state
 
 
@@ -236,13 +243,41 @@ def conditional(bn: Binance, symbol: str, side: str, kind: str, price: float):
     """Stop loss / take profit that closes the whole position on the mark price. Binance
     moved these order types to the algo endpoint in late 2025, so fall back on -4120."""
     try:
-        return bn.call("POST", "/fapi/v1/order", {"symbol": symbol, "side": side, "type": kind, "stopPrice": price,
-                                                  "closePosition": "true", "workingType": "MARK_PRICE"})
+        try:
+            return bn.call("POST", "/fapi/v1/order", {"symbol": symbol, "side": side, "type": kind, "stopPrice": price,
+                                                      "closePosition": "true", "workingType": "MARK_PRICE"})
+        except BinanceError as exc:
+            if exc.code != -4120:
+                raise
+        return bn.call("POST", "/fapi/v1/algoOrder", {"algoType": "CONDITIONAL", "symbol": symbol, "side": side,
+                                                      "type": kind, "triggerPrice": price, "closePosition": "true",
+                                                      "workingType": "MARK_PRICE"})
     except BinanceError as exc:
-        if exc.code != -4120:
-            raise
-    return bn.call("POST", "/fapi/v1/algoOrder", {"algoType": "CONDITIONAL", "symbol": symbol, "side": side, "type": kind,
-                                                  "triggerPrice": price, "closePosition": "true", "workingType": "MARK_PRICE"})
+        if exc.code == -4130:  # this close-position order is already on Binance (e.g. a retry after a timeout)
+            return None
+        raise
+
+
+def protective_orders(bn: Binance) -> dict:
+    """symbol -> set of open STOP_MARKET / TAKE_PROFIT_MARKET order types, from both order endpoints.
+    None when the algo list (where Binance keeps them now) can't be read: then nothing is re-placed."""
+    out: dict = {}
+    for path, field in (("/fapi/v1/openAlgoOrders", "orderType"), ("/fapi/v1/openOrders", "type")):
+        try:
+            rows = bn.call("GET", path)
+        except BinanceError:
+            if path == "/fapi/v1/openAlgoOrders":
+                return None
+            continue
+        for o in rows if isinstance(rows, list) else []:
+            if o.get(field) in ("STOP_MARKET", "TAKE_PROFIT_MARKET"):
+                out.setdefault(o["symbol"], set()).add(o[field])
+    return out
+
+
+def close_market(bn: Binance, symbol: str, side: str, pos: dict) -> None:
+    bn.call("POST", "/fapi/v1/order", {"symbol": symbol, "side": side, "type": "MARKET",
+                                       "quantity": abs(float(pos["positionAmt"])), "reduceOnly": "true"})
 
 
 def cancel_all(bn: Binance, symbol: str) -> None:
@@ -293,8 +328,42 @@ def fmt(p: dict, symbol: str) -> str:
 
 # ---- the engine's steps ------------------------------------------------------------
 
+def protect(cfg: Config, bn: Binance, state: dict, symbol: str, pos: dict, have: set) -> bool:
+    """Make sure the position has its stop loss and take profit. Places only what is missing.
+    Returns False when the stop could not be placed and the position was closed instead."""
+    tr = state["trades"][symbol]
+    placed = []
+    if "STOP_MARKET" not in have:
+        try:
+            conditional(bn, symbol, tr["close_side"], "STOP_MARKET", tr["sl"])
+            placed.append("SL")
+        except BinanceError as exc:
+            # Never leave a position without a stop
+            cancel_all(bn, symbol)
+            close_market(bn, symbol, tr["close_side"], pos)
+            del state["trades"][symbol]
+            telegram(cfg, f"⚠️ {coin(symbol)}: stop loss gagal dipasang ({exc}), posisi langsung ditutup.")
+            return False
+    if "TAKE_PROFIT_MARKET" not in have:
+        try:
+            conditional(bn, symbol, tr["close_side"], "TAKE_PROFIT_MARKET", tr["tp"])
+            placed.append("TP")
+        except BinanceError as exc:
+            telegram(cfg, f"⚠️ {coin(symbol)}: TP gagal dipasang ({exc}), pasang manual di {tr['tp']:g}. "
+                          "Dicoba lagi otomatis tiap 5 menit.")
+    if placed and tr.get("protected"):
+        telegram(cfg, f"🛡️ {coin(symbol)}: {' dan '.join(placed)} tidak ada di Binance (terhapus?), sudah dipasang lagi.")
+    return True
+
+
 def manage(cfg: Config, bn: Binance, state: dict, positions: dict, now: float) -> None:
     """Fills, stop/target, unfilled cancels, closes and the time exit for tracked trades."""
+    watch = now - state.get("watched", 0) >= WATCH_EVERY
+    orders = None
+    if any(tr["stage"] != "sim" and tr["symbol"] in positions and (watch or not tr.get("protected"))
+           for tr in state["trades"].values()):
+        orders = protective_orders(bn)
+        state["watched"] = now
     for symbol, tr in list(state["trades"].items()):
         if tr["stage"] == "sim":
             if now >= tr["expires"]:
@@ -305,24 +374,15 @@ def manage(cfg: Config, bn: Binance, state: dict, positions: dict, now: float) -
             if tr["stage"] == "pending":
                 tr["stage"], tr["filled_at"] = "open", now
                 tr["exit_at"] = exit_due(now)
-            try:
-                conditional(bn, symbol, tr["close_side"], "STOP_MARKET", tr["sl"])
-            except BinanceError as exc:
-                # Never leave a position without a stop
-                cancel_all(bn, symbol)
-                bn.call("POST", "/fapi/v1/order", {"symbol": symbol, "side": tr["close_side"], "type": "MARKET",
-                                                   "quantity": abs(float(pos["positionAmt"])), "reduceOnly": "true"})
-                del state["trades"][symbol]
-                telegram(cfg, f"⚠️ {coin(symbol)}: stop loss gagal dipasang ({exc}), posisi langsung ditutup.")
+            if not protect(cfg, bn, state, symbol, pos, (orders or {}).get(symbol, set())):
                 continue
             tr["protected"] = True
-            msg = f"🎯 {coin(symbol)} terisi {abs(float(pos['positionAmt'])):g} @ {float(pos['entryPrice']):g}. SL {tr['sl']:g} terpasang"
-            try:
-                conditional(bn, symbol, tr["close_side"], "TAKE_PROFIT_MARKET", tr["tp"])
-                msg += f", TP {tr['tp']:g} terpasang."
-            except BinanceError as exc:
-                msg += f".\n⚠️ TP gagal dipasang ({exc}), pasang manual di {tr['tp']:g}."
-            telegram(cfg, msg + f" Batas waktu: {time.strftime('%d/%m %H:%M', time.gmtime(tr['exit_at'] + 7 * 3600))} WIB.")
+            telegram(cfg, f"🎯 {coin(symbol)} terisi {abs(float(pos['positionAmt'])):g} @ {float(pos['entryPrice']):g}. "
+                          f"SL {tr['sl']:g} dan TP {tr['tp']:g} terpasang. Batas waktu: "
+                          f"{time.strftime('%d/%m %H:%M', time.gmtime(tr['exit_at'] + 7 * 3600))} WIB.")
+        elif pos and watch and orders is not None:
+            if not protect(cfg, bn, state, symbol, pos, orders.get(symbol, set())):
+                continue
         if tr["stage"] == "open" and pos and now >= tr["expires"] and not tr.get("entry_done"):
             cancel_entry(bn, tr)  # partly filled: the rest of the limit lapses like an unfilled one
             tr["entry_done"] = True
@@ -341,8 +401,7 @@ def manage(cfg: Config, bn: Binance, state: dict, positions: dict, now: float) -
                           f"(SL/TP kena atau ditutup manual).")
         elif tr["stage"] == "open" and pos and now >= tr["exit_at"]:
             cancel_all(bn, symbol)
-            bn.call("POST", "/fapi/v1/order", {"symbol": symbol, "side": tr["close_side"], "type": "MARKET",
-                                               "quantity": abs(float(pos["positionAmt"])), "reduceOnly": "true"})
+            close_market(bn, symbol, tr["close_side"], pos)
             pnl = realized_since(bn, symbol, tr["filled_at"] - 60)
             del state["trades"][symbol]
             telegram(cfg, f"⏱️ {coin(symbol)} {tr['dir']} ditutup karena sudah 5 hari (time exit): "
@@ -366,17 +425,26 @@ def enter_new(cfg: Config, bn: Binance, state: dict, positions: dict, now: float
     closed = candle_closed(now)
     eng = engine(cfg)
     rows = [r for r in eng["live"] if r["symbol"] in eng["symbols"] and f"{r['symbol']}:{closed}" not in state["seen"]]
-    if not rows:
-        return
     if any(r.get("as_of") is not None and r["as_of"] != closed for r in rows):
         return  # the dashboard still serves the previous candle; try again next tick
+    # A coin whose data failed on the dashboard is retried next tick instead of being written off
+    rows = [r for r in rows if not r.get("error")]
+    state["fresh"] = closed
+    if not rows:
+        return
     rows.sort(key=lambda r: -r.get("score", 0))
     filters = symbol_filters(bn)
     wallet, available = balances(bn)
+    paused = (HERE / PAUSE_FILE).exists()
+    low = cfg.min_balance is not None and wallet < cfg.min_balance
     for r in rows:
         symbol = r["symbol"]
         state["seen"].append(f"{symbol}:{closed}")
         if not r.get("active"):
+            continue
+        if paused or low:
+            why = "file PAUSE ada" if paused else f"saldo {wallet:.2f} di bawah MIN_BALANCE {cfg.min_balance:g}"
+            telegram(cfg, f"⏸️ {coin(symbol)}: sinyal {r['side']} tidak dipasang, entry baru dihentikan ({why}).")
             continue
         if symbol in positions or symbol in state["trades"]:
             telegram(cfg, f"⏭️ {coin(symbol)}: sinyal {r['side']} dilewati, koin ini sudah punya posisi/order.")
@@ -409,18 +477,32 @@ def enter_new(cfg: Config, bn: Binance, state: dict, positions: dict, now: float
             continue
         try:
             p["lev"] = set_leverage(bn, symbol, p["lev"])
-            order = {"symbol": symbol, "side": p["side"], "type": "LIMIT", "quantity": p["qty"], "price": p["entry"],
-                     "newClientOrderId": tr["cid"]}
-            try:
-                bn.call("POST", "/fapi/v1/order", {**order, "timeInForce": "GTD", "goodTillDate": tr["expires"] * 1000})
-            except BinanceError:  # GTD not accepted here: plain GTC, the executor cancels it itself
-                bn.call("POST", "/fapi/v1/order", {**order, "timeInForce": "GTC"})
         except BinanceError as exc:
             telegram(cfg, f"❌ {coin(symbol)}: order gagal ({exc}).")
             continue
+        # Tracked before it is sent: if the reply is lost (timeout) the order may still exist on
+        # Binance, and then a fill must still get its SL/TP and an unfilled order its cancel.
         state["trades"][symbol] = {**tr, "stage": "pending"}
-        available -= p["margin"]
         save_state(cfg, state)
+        order = {"symbol": symbol, "side": p["side"], "type": "LIMIT", "quantity": p["qty"], "price": p["entry"],
+                 "newClientOrderId": tr["cid"]}
+        try:
+            try:
+                bn.call("POST", "/fapi/v1/order", {**order, "timeInForce": "GTD", "goodTillDate": tr["expires"] * 1000})
+            except BinanceError as exc:
+                if exc.code == -4116:  # duplicate client id: the first attempt did go through
+                    raise
+                # GTD not accepted here: plain GTC, the executor cancels it itself
+                bn.call("POST", "/fapi/v1/order", {**order, "timeInForce": "GTC"})
+        except BinanceError as exc:
+            if exc.code != -4116:
+                del state["trades"][symbol]
+                telegram(cfg, f"❌ {coin(symbol)}: order gagal ({exc}).")
+                continue
+        except Exception as exc:
+            telegram(cfg, f"⚠️ {coin(symbol)}: jawaban Binance hilang saat pasang order ({type(exc).__name__}). "
+                          "Dianggap terpasang dan tetap diawasi (SL/TP kalau terisi, batal setelah 16 jam).")
+        available -= p["margin"]
         telegram(cfg, f"📥 Order limit terpasang: {fmt(p, symbol)}. Batal otomatis kalau tidak terisi dalam 16 jam.")
 
 
@@ -429,12 +511,49 @@ def run(cfg: Config, now: float | None = None) -> None:
     bn = Binance(cfg)
     state = load_state(cfg)
     positions = open_positions(bn)
+    state.setdefault("started", now)
     try:
+        tracked = set(state["trades"])  # a trade closed during this tick still shows in `positions`
         manage(cfg, bn, state, positions, now)
+        watch_untracked(cfg, state, {s: p for s, p in positions.items() if s not in tracked})
+        closed = candle_closed(now)
         if in_entry_window(now):
             enter_new(cfg, bn, state, open_positions(bn) if not cfg.dry_run else positions, now)
+        elif state.get("fresh") != closed and state.get("stale") != closed and closed + STEP > state["started"]:
+            state["stale"] = closed
+            telegram(cfg, "⚠️ Data engine di dashboard tidak bisa dibaca dalam 30 menit setelah candle "
+                          f"{time.strftime('%H:%M', time.gmtime(closed + STEP + 7 * 3600))} WIB tutup. "
+                          "Sinyal candle ini terlewat. Cek dashboard/Vercel.")
+        heartbeat(cfg, bn, state, positions, now)
     finally:
         save_state(cfg, state)
+
+
+def watch_untracked(cfg: Config, state: dict, positions: dict) -> None:
+    """A position the executor does not manage has no SL/TP or time exit from it: say so once."""
+    if cfg.dry_run:
+        return
+    loose = sorted(set(positions) - set(state["trades"]))
+    for symbol in loose:
+        if symbol not in state["untracked"]:
+            telegram(cfg, f"👀 {coin(symbol)}: ada posisi di Binance yang tidak diurus eksekutor "
+                          "(dibuka manual atau data eksekutor hilang). Pastikan SL-nya ada; slotnya tetap dihitung.")
+    state["untracked"] = loose
+
+
+def heartbeat(cfg: Config, bn: Binance, state: dict, positions: dict, now: float) -> None:
+    """Once a day: proof the executor is alive. No message that morning = check the VPS."""
+    day = time.strftime("%Y-%m-%d", time.gmtime(now))
+    if time.gmtime(now).tm_hour < HEARTBEAT_HOUR_UTC or state.get("heartbeat") == day:
+        return
+    state["heartbeat"] = day
+    wallet, _ = balances(bn)
+    pending = sum(1 for t in state["trades"].values() if t["stage"] in ("pending", "sim"))
+    if day.endswith("-01"):
+        monthly_report(cfg, bn, now)
+    telegram(cfg, f"💓 Eksekutor hidup ({'SIMULASI' if cfg.dry_run else 'ORDER SUNGGUHAN'}). Saldo {wallet:.2f} USDT, "
+                  f"{len(positions)} posisi terbuka, {pending} order limit menunggu."
+                  + (" Entry baru DIHENTIKAN (file PAUSE)." if (HERE / PAUSE_FILE).exists() else ""))
 
 
 def loop(cfg: Config) -> None:
@@ -452,6 +571,23 @@ def loop(cfg: Config) -> None:
                 telegram(cfg, f"❌ Eksekutor error: {text[:300]}")
                 last_error = text
         time.sleep(TICK_SECONDS - time.time() % TICK_SECONDS)
+
+
+def monthly_report(cfg: Config, bn: Binance, now: float) -> None:
+    """On the 1st: last month's result after fees and funding, against the VPS bill."""
+    t = time.gmtime(now)
+    start = calendar.timegm((t.tm_year - (t.tm_mon == 1), (t.tm_mon - 2) % 12 + 1, 1, 0, 0, 0))
+    end = now - (now % 86400)
+    rows = bn.call("GET", "/fapi/v1/income", {"startTime": int(start * 1000), "endTime": int(end * 1000), "limit": 1000})
+    by = {}
+    for r in rows:
+        if r["incomeType"] in ("REALIZED_PNL", "COMMISSION", "FUNDING_FEE"):
+            by[r["incomeType"]] = by.get(r["incomeType"], 0.0) + float(r["income"])
+    trades = sum(1 for r in rows if r["incomeType"] == "REALIZED_PNL")
+    total = sum(by.values())
+    telegram(cfg, f"📊 Hasil bulan {time.strftime('%m/%Y', time.gmtime(start))}: {'+' if total >= 0 else ''}{total:.2f} USDT "
+                  f"(PnL {by.get('REALIZED_PNL', 0):+.2f}, fee {by.get('COMMISSION', 0):+.2f}, "
+                  f"funding {by.get('FUNDING_FEE', 0):+.2f}, {trades} penutupan).")
 
 
 def status(cfg: Config) -> None:
@@ -488,7 +624,9 @@ def check(cfg: Config) -> None:
 
 if __name__ == "__main__":
     config = Config(load_env())
-    if not (config.key and config.secret):
+    if not (config.key and config.secret) and sys.argv[1:2] != ["notify"]:
         sys.exit("Isi BINANCE_API_KEY dan BINANCE_API_SECRET di file .env dulu.")
     cmd = sys.argv[1] if len(sys.argv) > 1 else "run"
+    if cmd == "notify":
+        sys.exit(telegram(config, " ".join(sys.argv[2:])))
     {"check": check, "run": run, "loop": loop, "status": status}.get(cmd, run)(config)
