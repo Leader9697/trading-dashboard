@@ -135,7 +135,7 @@ export type Backtest = {
 export type PastTrade = {
   signal: number; fill: number; end: number; side: 'long' | 'short';
   entry: number; stop_loss: number; take_profit: number;
-  status: 'tp' | 'stop' | 'timeout'; r: number; sl_pct: number; below_min: boolean;
+  status: 'tp' | 'stop' | 'timeout'; r: number; exit: number; sl_pct: number; below_min: boolean;
 };
 
 export type PastTrades =

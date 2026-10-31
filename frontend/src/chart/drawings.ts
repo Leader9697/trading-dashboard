@@ -552,6 +552,19 @@ export class DrawingLayer implements ISeriesPrimitive<Time> {
     ctx.strokeStyle = c.text;
     ctx.lineWidth = 1;
     this.line(ctx, { x: x0, y: yE }, { x: x0 + w, y: yE });
+    // A trade closed by the time limit ends inside the box: a dashed path from entry to the exit price and a dot there.
+    const yX = t.status === 'timeout' ? this.y(t.exit) : null;
+    if (yX !== null) {
+      const col = t.r > 0 ? c.up : c.down;
+      ctx.strokeStyle = col;
+      ctx.setLineDash([4, 3]);
+      this.line(ctx, { x: x0, y: yE }, { x: x0 + w, y: yX });
+      ctx.setLineDash([]);
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.arc(x0 + w, yX, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
     const text = `${t.r > 0 ? '+' : '−'}${Math.abs(t.r).toFixed(1)}R`;
     // The result sits inside the box's top edge, only when it fits, so neighbouring trades never overlap.
     const tw = ctx.measureText(text).width + 10;

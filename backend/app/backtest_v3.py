@@ -33,6 +33,13 @@ def _digits(price: float) -> int:
     return 2 if price >= 100 else 4 if price >= 1 else 6
 
 
+def exit_price(t: dict, fee: float = FEE_ROUND_TRIP) -> float:
+    """Where the trade closed, recovered from its R, which already has the fee taken off."""
+    sign = 1 if t["side"] == "long" else -1
+    risk = abs(t["entry"] - t["stop_loss"])
+    return t["entry"] + sign * (t["r"] + fee * t["entry"] / risk) * risk
+
+
 def trades(symbol: str, pre: list, ltf: list[dict], sigs: list[int], step: int) -> list[dict]:
     out = []
     for t in E.simulate(pre, ltf, sigs, ENTRY, STOP, TP_R, MAX_HOLD_BARS):
@@ -51,6 +58,7 @@ def trades(symbol: str, pre: list, ltf: list[dict], sigs: list[int], step: int) 
             "sl_pct": round(t["risk_pct"], 2),
             "below_min": notional < MIN_NOTIONAL.get(symbol, 5),
         })
+        out[-1]["exit"] = round(exit_price(out[-1]), d)
     return out
 
 
