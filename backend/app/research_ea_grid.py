@@ -23,9 +23,23 @@ body are clipped, because thin stablecoin books print spikes a broker feed does 
 Costs: 1.2 pip spread, swap per lot per night long -$6 short -$1 (x3 on Wednesday), no
 commission (standard account). Leverage 1:500, stop-out at 50% margin level.
 
+Result (2023-01..2026-09, $10,000 start; 2020-22 dropped, see DATA_START):
+  V13 as written, 0.01 lot   +15.7%  DD 7.3%  but ends with both baskets stuck at 12 layers
+                                               (-$1,400 floating); 2025 alone -4.9%
+  V13, 0.01 lot on $1,000    +49%    DD 72-80%, equity fell to $286
+  V13, 0.10 lot on $10,000   -95%    blown (same lot/equity ratio as above, other path)
+  V14 tuning, 2023-24        all 24 variants lost (-7% to -75%); grid 1.5 ATR lost least
+  V14 2023-24 (in-sample)    -7.1%   DD 19.8%
+  V14 2025-26 (out-of-sample) +2.8%  DD 7.4%; with 2x spread -9.7%
+  V14 per year               2023 -5.3%, 2024 +0.4%, 2025 -0.7%, 2026 +3.4%
+V14 caps the loss (largest basket loss $401, never near a blow-up), but once the tail is
+capped there is no edge left: the grid wins ~95% of baskets and gives it back in the stops
+and the spread. The tuning list in variants() was run with grid_atr 1.0 as its base.
+
 Commands (run where data.binance.vision is reachable):
-  python -m app.research_ea_grid fetch            writes DATA_DIR/EURUSD_1m.npy
-  python -m app.research_ea_grid report [tune]    prints JSON results
+  python -m app.research_ea_grid fetch                         writes DATA_DIR/EURUSD_1m.npy
+  python -m app.research_ea_grid report tune                   in-sample variants
+  python -m app.research_ea_grid report main '{"grid_atr": 1.5}'   V13 vs V14, IS/OOS/years
 """
 
 from __future__ import annotations
@@ -327,7 +341,7 @@ class V14:
     mult: float = 1.3
     layers: int = 6                # with the H1 trend
     counter_layers: int = 3        # against the H1 trend
-    grid_atr: float = 1.0          # grid step = grid_atr x ATR(H1,14)
+    grid_atr: float = 1.5          # grid step = grid_atr x ATR(H1,14); 1.5 lost least in 2023-24
     min_grid_pips: float = 8.0
     expansion: float = 1.2
     stop_steps: float = 1.0        # hard stop this many next-steps past the last layer
