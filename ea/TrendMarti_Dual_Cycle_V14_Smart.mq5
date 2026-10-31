@@ -160,9 +160,9 @@ double StartLot(const double equity, const double step)
   }
 
 //+------------------------------------------------------------------+
-BasketInfo Scan(const ENUM_POSITION_TYPE type)
+void Scan(const ENUM_POSITION_TYPE type, BasketInfo &b)
   {
-   BasketInfo b; b.count = 0; b.lots = 0; b.firstPrice = 0; b.lastLot = 0; b.profit = 0; b.opened = 0;
+   b.count = 0; b.lots = 0; b.firstPrice = 0; b.lastLot = 0; b.profit = 0; b.opened = 0;
    datetime first = 0, last = 0;
    for(int i = PositionsTotal() - 1; i >= 0; i--)
      {
@@ -179,7 +179,6 @@ BasketInfo Scan(const ENUM_POSITION_TYPE type)
       if(ot >= last) { last = ot; b.lastLot = v; }
      }
    b.opened = first;
-   return(b);
   }
 
 void CloseBasket(const ENUM_POSITION_TYPE type, const string why)
@@ -282,7 +281,8 @@ void OnTick()
    for(int side = 1; side >= -1; side -= 2)
      {
       ENUM_POSITION_TYPE type = side > 0 ? POSITION_TYPE_BUY : POSITION_TYPE_SELL;
-      BasketInfo b = Scan(type);
+      BasketInfo b;
+      Scan(type, b);
       bool withTrend = (side == trend);
 
       // --- no basket: maybe start one
