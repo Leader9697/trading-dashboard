@@ -40,6 +40,7 @@ Commands (run where data.binance.vision is reachable):
   python -m app.research_ea_grid fetch                         writes DATA_DIR/EURUSD_1m.npy
   python -m app.research_ea_grid report tune                   in-sample variants
   python -m app.research_ea_grid report main '{"grid_atr": 1.5}'   V13 vs V14, IS/OOS/years
+  python -m app.research_ea_grid report zr [json]              zone recovery tune, or check a pick
 """
 
 from __future__ import annotations
@@ -432,7 +433,12 @@ class ZR:
     If price runs Z against it, open the opposite side with a lot big enough that the whole set is
     +target once price goes T further; if price comes back across the zone, open the first side
     again, bigger, and so on. Close everything at +target, or when the next leg would exceed
-    max_legs (hard stop). lot0 is sized so that the hard stop costs risk_pct of equity."""
+    max_legs (hard stop). lot0 is sized so that the hard stop costs risk_pct of equity.
+
+    Lots grow about x2-3 per leg (Z=T: 1, 3, 6, 12, 24, 48), so 6 legs at TP 0.5 Z leave a
+    lot0 below 0.01 even on $10k. Result ($10k, risk 4%): all 12 variants lost on 2023-24
+    (-4% to -95%, one blown); the least bad (zone 2.5 ATR, TP 0.5 Z, 4 legs) made -4% there
+    and -14.4% on 2025-26 (DD 21%; -23.1% with 2x spread). Not better than V14."""
     zone_atr: float = 1.5          # zone width Z = zone_atr x ATR(H1,14)
     min_zone_pips: float = 10.0
     tp_ratio: float = 1.0          # T = tp_ratio x Z
