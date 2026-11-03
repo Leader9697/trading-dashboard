@@ -46,6 +46,15 @@ sesekali satu basket nyangkut atau kena guard dan menghapus semuanya. Begitu eko
 yang tersisa kira-kira impas dikurangi spread. Tidak ada setting grid yang ditemukan bisa
 agresif, untung, dan aman sekaligus di EURUSD.
 
+## Zone recovery (hedge recovery) juga sudah diuji
+
+Ide: kalau posisi pertama floating minus sejauh zona Z, buka posisi lawan dengan lot lebih
+besar supaya total untung kalau harga lanjut, lalu bolak-balik sampai total profit. Lotnya
+naik kira-kira 2-3x per leg (1, 3, 6, 12, 24, 48), jadi tetap martingale. Hasil ($10.000,
+risiko 4%): 12 variasi di 2023-2024 semuanya rugi (-4% sampai -95%, satu akun habis). Yang
+paling kecil ruginya (zona 2,5 ATR, TP 0,5 zona, maks 4 leg) di 2025-2026: -14,4%, DD 21%
+(spread 2x: -23,1%). Lebih buruk dari V14.
+
 ## Cara pakai
 
 1. Salin `TrendMarti_Dual_Cycle_V14_Smart.mq5` ke `MQL5/Experts/`, compile di MetaEditor.

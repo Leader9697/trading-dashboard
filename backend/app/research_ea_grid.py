@@ -40,6 +40,7 @@ Commands (run where data.binance.vision is reachable):
   python -m app.research_ea_grid fetch                         writes DATA_DIR/EURUSD_1m.npy
   python -m app.research_ea_grid report tune                   in-sample variants
   python -m app.research_ea_grid report main '{"grid_atr": 1.5}'   V13 vs V14, IS/OOS/years
+  python -m app.research_ea_grid report zr [json]              zone recovery tune, or check a pick
 """
 
 from __future__ import annotations
@@ -423,6 +424,94 @@ class V14:
                     a.open(s, rlot(x.lot0 * self.mult ** x.n), bid, ask, t)
 
 
+
+# ---------------------------------------------------------------- zone recovery (hedge recovery)
+
+@dataclass
+class ZR:
+    """Zone recovery: one cycle at a time. Open lot0 in the H1 trend direction on an RSI pullback.
+    If price runs Z against it, open the opposite side with a lot big enough that the whole set is
+    +target once price goes T further; if price comes back across the zone, open the first side
+    again, bigger, and so on. Close everything at +target, or when the next leg would exceed
+    max_legs (hard stop). lot0 is sized so that the hard stop costs risk_pct of equity.
+
+    Lots grow about x2-3 per leg (Z=T: 1, 3, 6, 12, 24, 48), so 6 legs at TP 0.5 Z leave a
+    lot0 below 0.01 even on $10k. Result ($10k, risk 4%): all 12 variants lost on 2023-24
+    (-4% to -95%, one blown); the least bad (zone 2.5 ATR, TP 0.5 Z, 4 legs) made -4% there
+    and -14.4% on 2025-26 (DD 21%; -23.1% with 2x spread). Not better than V14."""
+    zone_atr: float = 1.5          # zone width Z = zone_atr x ATR(H1,14)
+    min_zone_pips: float = 10.0
+    tp_ratio: float = 1.0          # T = tp_ratio x Z
+    max_legs: int = 5
+    risk_pct: float = 4.0
+    max_loss_pct: float = 6.0
+    rsi_with: float = 35
+    active: bool = False
+    up: float = 0.0
+    lo: float = 0.0
+    tp: float = 0.0
+    target: float = 0.0
+    nxt: int = 0
+    legs: int = 0
+    eq0: float = 0.0
+
+    def unit_loss(self, z, t):
+        """Loss per 1.0 lot0 when the hard stop hits (legs run to max_legs, price goes on)."""
+        legs = [(1, 0.0, 1.0)]                       # (side, price, lot); buy at 0, zone [-z, 0]
+        target = t
+        def pnl(px):
+            return sum(sd * (px - p) * v for sd, p, v in legs)
+        nxt = -1
+        while len(legs) < self.max_legs:
+            px = -z if nxt < 0 else 0.0
+            exit_px = px - t if nxt < 0 else px + t
+            lot = (target - pnl(exit_px)) / t
+            legs.append((nxt, px, lot))
+            nxt = -nxt
+        px = -z if nxt < 0 else 0.0                  # the trigger of the leg that is not allowed
+        return -pnl(px) + SPREAD * sum(v for *_, v in legs)
+
+    def tick(self, a: Account, mk: Market, i: int, bid: float, ask: float, t: int):
+        if not self.active:
+            if a.b[1] or a.b[-1]:
+                return
+            h, wd = mk.hour[i], mk.wd[i]
+            if h >= 20 or h == 0 or (wd == 4 and h >= 18):
+                return
+            s, r = mk.trend[i], mk.rsi[i]
+            if not ((s > 0 and r < self.rsi_with) or (s < 0 and r > 100 - self.rsi_with)):
+                return
+            z = max(self.zone_atr * mk.atr[i], self.min_zone_pips * PIP)
+            tp = self.tp_ratio * z
+            eq = a.equity(bid, ask)
+            lot = math.floor(eq * self.risk_pct / 100 / (self.unit_loss(z, tp) * CONTRACT) * 100) / 100
+            if lot < 0.01:
+                return
+            a.open(s, lot, bid, ask, t)
+            px = ask if s > 0 else bid
+            self.up, self.lo = (px, px - z) if s > 0 else (px + z, px)
+            self.tp, self.target, self.nxt, self.legs, self.eq0, self.active = tp, lot * tp * CONTRACT, -s, 1, eq, True
+            return
+        total = sum(x.pnl(bid, ask) for x in a.b.values() if x)
+        why = "tp" if total >= self.target else ("money_stop" if total <= -self.eq0 * self.max_loss_pct / 100 else None)
+        if why is None and ((self.nxt < 0 and bid <= self.lo) or (self.nxt > 0 and ask >= self.up)):
+            if self.legs >= self.max_legs:
+                why = "hard_stop"
+            else:
+                exit_mid = self.lo - self.tp if self.nxt < 0 else self.up + self.tp
+                eb, ea = exit_mid - SPREAD / 2, exit_mid + SPREAD / 2
+                at_exit = sum(x.pnl(eb, ea) - x.swap for x in a.b.values() if x)
+                lot = rlot((self.target - at_exit) / (self.tp * CONTRACT))
+                a.open(self.nxt, lot, bid, ask, t)
+                self.legs += 1
+                self.nxt = -self.nxt
+        if why:
+            for s in (1, -1):
+                if a.b[s]:
+                    a.close(s, bid, ask, t, why)
+            self.active = False
+
+
 # ---------------------------------------------------------------- runner
 
 def run(strategy, mk: Market, capital: float) -> dict:
@@ -522,7 +611,18 @@ def variants2():
 
 def report(mode: str = "main") -> dict:
     jobs = []
-    if mode in ("tune", "tune2"):  # in-sample only
+    if mode == "zr":  # zone recovery: tune on 2023-24, check the pick on 2025-26
+        pick = json.loads(sys.argv[3]) if len(sys.argv) > 3 else None
+        if pick is None:
+            for za in (1.0, 1.5, 2.5):
+                for tr in (0.5, 1.0):
+                    for ml in (4, 6):
+                        jobs.append((f"ZR IS zone{za} tp{tr} legs{ml}", ZR(zone_atr=za, tp_ratio=tr, max_legs=ml), 10_000, IS_START, IS_END))
+        else:
+            for name, s0, e0 in (("IS", IS_START, IS_END), ("OOS", IS_END, END), ("full", IS_START, END)):
+                jobs.append((f"ZR {name}", ZR(**pick), 10_000, s0, e0))
+            jobs.append(("ZR OOS 2x spread", "zx2:" + json.dumps(pick), 10_000, IS_END, END))
+    elif mode in ("tune", "tune2"):  # in-sample only
         for k, v in ({**variants(), **variants2()} if mode == "tune" else variants2()).items():
             jobs.append((f"IS {k}", v, 10_000, IS_START, IS_END))
             if mode == "tune2" and k.startswith("grid0.6_min8"):
@@ -553,6 +653,9 @@ def report(mode: str = "main") -> dict:
 def _job2(arg):
     (name, strat, capital, start, end), _ = arg
     global SPREAD
+    if isinstance(strat, str) and strat.startswith("zx2:"):
+        SPREAD *= 2
+        strat = ZR(**json.loads(strat[4:]))
     if isinstance(strat, str) and strat.startswith("x2"):
         SPREAD *= 2
         v14 = json.loads(strat[3:]) if strat.startswith("x2:") else (json.loads(sys.argv[3]) if len(sys.argv) > 3 else {})
